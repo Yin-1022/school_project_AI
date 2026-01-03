@@ -28,10 +28,10 @@ def step(state, *, pred_name, conf, visible, phase, search_hint, frame_id_end):
     params = {}
     new_cmd_selected = False
 
-    if visible==1 and pred_name=="attack" and conf>=const.TAU_CMD:
+    if visible==1 and pred_name=="attack":
             fsm_state = "Evade"
             new_cmd_selected = True
-            if is_ready(state, "EvadeBack", frame_id_end):
+            if is_ready(state, "EvadeBack", frame_id_end) and conf>=const.TAU_CMD:
                 cmd = "EvadeBack"
             else:
                 cmd = "Retreat"
@@ -75,8 +75,10 @@ def step(state, *, pred_name, conf, visible, phase, search_hint, frame_id_end):
                         cmd = "Hold"  
         elif visible==1 and pred_name in {"move", "idle", "roll"}:
             fsm_state = "Chase"
-            rand_outcome = random.random() < 0.2 
-            if rand_outcome:
+            # rand_outcome = random.random() < 0.2 
+            # if rand_outcome:
+            n = (frame_id_end // const.CLIP_STRIDE)
+            if n % 5 == 0:
                 if search_hint == "left":
                     cmd = "StrafeLeft"
                 elif search_hint == "right":

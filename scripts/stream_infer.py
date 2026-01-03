@@ -4,6 +4,8 @@ import collections
 import torch
 from models import Small3DNet
 import numpy as np
+from visibility import update as vis_update, stateInit as vis_init
+from policy import init_state as policy_init, step as policy_step
 
 RAW_DIR = Path("data/raw_videos")
 video_path = RAW_DIR / "raw_video_4_t.mp4"
@@ -14,6 +16,9 @@ TARGET_FPS      = 12
 FRAME_SIZE      = (192, 192)
 
 def main():
+    vis_state = None                    
+    pol_state = policy_init() 
+    
     model = load_model(str(WEIGHTS_PATH), device="cuda" if torch.cuda.is_available() else "cpu")
 
     cap = cv2.VideoCapture(str(video_path))
@@ -42,7 +47,30 @@ def main():
                 frames = np.transpose(frames, (3,0,1,2))  # C,T,H,W
                 frames = torch.tensor(frames).unsqueeze(0)  # Add batch dimension: 1,C,T,H,W
                 output = infer_clip(frames, model, (pushed_frames - 1))
-                print(f"frame_id_end: {output['frame_id_end']}, pred_name: {output['pred_name']} conf: {output['conf']:.4f}, visible: {output['visible']}")       
+                info, vis_state = vis_update(
+                    vis_state, 
+                    frames, 
+                    output["pred_name"], 
+                    output["visible"], 
+                    output["frame_id_end"]
+                )
+                cmd, pol_state, params, fire_frame = policy_step(
+                    pol_state,
+                    pred_name=info["pred_name"],          # 可能已被 motion gate 覆寫
+                    conf=output["conf"],
+                    visible=info["visible"],
+                    phase=info["phase"],
+                    search_hint=info["search_hint"],
+                    frame_id_end=output["frame_id_end"]
+                )
+                print(f"frame_id_end: {output['frame_id_end']}, pred_name: {output['pred_name']} conf: {output['conf']:.4f}, visible: {output['visible']}")
+                print(
+                    f"[t={output['frame_id_end']:05d}] "
+                    f"pred={output['pred_name']}({output['conf']:.2f}) "
+                    f"vis={info['visible']} phase={info['phase']} "
+                    f"hint={info['search_hint']} motion={info['motion']:.4f} "
+                    f"→ cmd={cmd} params={params} fire@{fire_frame} hold_until={pol_state['hold_until_frame']}"
+                )       
         idx += 1
         
     cap.release()
@@ -54,9 +82,9 @@ def infer_clip(frames, model, frame_id_end):
         outputs = model(input_tensor)
     probs = torch.softmax(outputs, dim=1)
     pred = probs.argmax(dim=1).item()
-    conf = probs.max().item()
-    pred_name = id_to_name(pred) if conf > 0.5 else "none"
-    visible = 1 if pred_name != "none" else 0
+    conf = probs[0, pred].item()
+    pred_name = id_to_name(pred)        # 總是給出類別名稱
+    visible = 1                         # 先當作可見，交給 3C 的 motion gate 來關掉
     return {"frame_id_end": frame_id_end, "pred": pred, "pred_name": pred_name, "conf": conf, "visible": visible, "outputs": outputs}
         
 def id_to_name(pred_id):
