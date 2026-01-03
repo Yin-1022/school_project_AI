@@ -12,8 +12,6 @@ CLIP_FRAMES     = 8          # 每個 clip 的影格數
 CLIP_STRIDE     = 4          # 滑窗步長（重疊有助抓動作起迄）
 TARGET_FPS      = 12
 FRAME_SIZE      = (192, 192)
-ms_per_frame = 1000 / TARGET_FPS
-delta_t_ms = (CLIP_STRIDE / TARGET_FPS) * 1000
 
 def main():
     model = load_model(str(WEIGHTS_PATH), device="cuda" if torch.cuda.is_available() else "cpu")

@@ -1,6 +1,7 @@
 import torch
+from constant import ms_per_frame, delta_t_ms
 
-def update(state, frames, pred_name, visible, frame_id_end, ms_per_frame, delta_t_ms):
+def update(state, frames, pred_name, visible, frame_id_end):
     if state is None:
         state = stateInit()
     phase = ""
@@ -12,18 +13,29 @@ def update(state, frames, pred_name, visible, frame_id_end, ms_per_frame, delta_
     now_ms = (frame_id_end + 1) * ms_per_frame
     search_hint = None
 
-    motion, stop, pred_name, visible = motionGate(frames, pred_name, visible)
+    mg = motionGate(frames, pred_name, visible)
+    motion, stop, pred_name, visible = mg["motion"], mg["stop"], mg["pred_name"], mg["visible"]
+
     if visible == 1:
-        last_seen_dir = estiDirections(frames)
+        dir_new = estiDirections(frames)
+        if dir_new == state["dir_candidate"]:
+            state["dir_hysteresis_cnt"] += 1
+        else:
+            state["dir_candidate"] = dir_new
+            state["dir_hysteresis_cnt"] = 1
+        if state["dir_hysteresis_cnt"] >= 2:
+            last_seen_dir = state["dir_candidate"]
         phase = "track"
         last_visible_ts_ms = now_ms
         invisible_acc_ms = 0
     else :
         invisible_acc_ms += delta_t_ms
-        if invisible_acc_ms <= PATROL_TIMEOUT_MS:
+        if (now_ms - last_visible_ts_ms) <= REACQ_GRACE_MS:
             phase = "reacq"
         elif invisible_acc_ms > PATROL_TIMEOUT_MS:
             phase = "patrol"
+        else:
+            phase = "reacq"
     
     if phase == "reacq":
         search_hint = last_seen_dir
@@ -36,6 +48,13 @@ def update(state, frames, pred_name, visible, frame_id_end, ms_per_frame, delta_
                 "invisible_acc_ms": invisible_acc_ms,          # 決策層可看它換策略
                 "last_seen_dir": last_seen_dir,
                 "last_visible_ts_ms": last_visible_ts_ms}
+    
+    state["invisible_acc_ms"] = invisible_acc_ms
+    state["last_seen_dir"] = last_seen_dir
+    state["last_visible_ts_ms"] = last_visible_ts_ms
+    state["dir_candidate"] = state.get("dir_candidate", "center")
+    state["dir_hysteresis_cnt"] = state.get("dir_hysteresis_cnt", 0)
+
     return out, state
 
 def stateInit():
@@ -43,7 +62,9 @@ def stateInit():
         "search_hint": None,
         "invisible_acc_ms": 0,
         "last_visible_ts_ms": 0,
-        "last_seen_dir": "center"
+        "last_seen_dir": "center",
+        "dir_candidate": "center",
+        "dir_hysteresis_cnt": 0
     }
     return state
     
