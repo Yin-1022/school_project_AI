@@ -1,14 +1,15 @@
 # scripts/extract_clips.py
-import cv2, os, math
+import cv2
+import constant as const
 from pathlib import Path
 from tqdm    import tqdm
 
-RAW_DIR = Path("data/raw_videos")
-OUT_DIR = Path("data/clips")
-CLIP_FRAMES     = 8          # 每個 clip 的影格數
-CLIP_STRIDE     = 4          # 滑窗步長（重疊有助抓動作起迄）
-TARGET_FPS      = 12         # 轉成固定 FPS，降低抖動與檔案大小
-FRAME_SIZE      = (192, 192) # 先取小一點，後面分類器更輕量
+RAW_DIR = const.RAW_DIR
+OUT_DIR = const.OUT_DIR
+CLIP_FRAMES     = const.CLIP_FRAMES    # 每個 clip 的影格數
+CLIP_STRIDE     = const.CLIP_STRIDE    # 滑窗步長（重疊有助抓動作起迄）
+TARGET_FPS      = const.TARGET_FPS     # 轉成固定 FPS，降低抖動與檔案大小
+FRAME_SIZE      = const.FRAME_SIZE     # 先取小一點，後面分類器更輕量
 
 def ensure_dir(p: Path):
     p.mkdir(parents=True, exist_ok=True)

@@ -1,7 +1,12 @@
+from pathlib import Path
+
+#For extract_clips.py
 CLIP_FRAMES     = 8          
 CLIP_STRIDE     = 4          
 TARGET_FPS      = 12
 FRAME_SIZE      = (192, 192)
+RAW_DIR         = Path("data/raw_videos")
+OUT_DIR         = Path("data/clips")
 ms_per_frame    = int(1000 / TARGET_FPS)
 delta_t_ms      = CLIP_STRIDE * ms_per_frame
 

@@ -44,7 +44,7 @@ def main():
     # val 不做增強
     val_set.dataset.augment = False
 
-    # 類別權重（處理類別不平衡；若你分佈很均衡也可拿掉）
+    # 類別權重
     counts = np.zeros(NUM_CLASSES, dtype=int)
     for _, y in train_set:
         counts[y.item()] += 1
