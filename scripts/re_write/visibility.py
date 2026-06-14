@@ -85,12 +85,13 @@ def motionGate(frames, pred_name, visible, gate=0.006):
 
     motion = (total_motion / (T - 1)).item()                     # 8 幀 → 7 個差分的平均
     stop   = 1 if motion < gate else 0
+    visible_before = visible
 
     if stop == 1:
         pred_name = "none"
         visible   = 0
 
-    print(f"[motion-gate] pred={pred_name} motion={motion:.5f} gate={gate} stop={stop} visible_in={visible}")
+    print(f"[motion-gate] pred={pred_name} motion={motion:.5f} gate={gate} stop={stop} visible_in={visible_before}")
     return {"motion": motion, "stop": stop, "pred_name": pred_name, "visible": visible}
 
 def estiDirections(frames, kappa=0.07, eps=1e-8):

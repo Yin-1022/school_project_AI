@@ -8,7 +8,11 @@ def init_state():
         "cooldowns" : {"EvadeBack":0,"SearchTurn":0,"PatrolStep":0},
         "last_action": "Hold", 
         "last_action_at_frame": -1,
-        "rt_queue": []
+        "rt_queue": [],
+        "same_action_streak": 0,
+        "last_proposed_action": None,
+        "hold_streak": 0,
+        "last_non_hold_action": "Hold",
     }
     return state
 
