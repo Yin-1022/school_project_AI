@@ -20,7 +20,8 @@ from constant import (
     CD_EVADE,
     CD_TURN,
     CD_PATROL,
-    CD_STRAFE,
+    ROLLOUT_SAVE_EVERY,
+    ROLLOUT_DIR,
 )
 from pythonosc.udp_client import SimpleUDPClient
 
@@ -36,11 +37,17 @@ FRAME_SIZE      = (192, 192)
 SEQ = 0
 _UDP_SOCK = None
 UE_EVENT_STATE = {
-    "attack_triggered": False,
+    "attack_active": False,
+    "attack_start_pulse": False,
+    "attack_end_pulse": False,
+    "boss_hit_pulse": False,
+    "player_hit_pulse": False,
+    "episode_done_pulse": False,
 }
 UE_EVENT_LOCK = threading.Lock()
 
 def main():
+    rollout_buffer = [] 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = load_model(str(WEIGHTS_PATH), device=device)
     receive_from_ue()
@@ -90,12 +97,31 @@ def main():
         topk_confs = bc_out["topk_probs"][0]
 
         with UE_EVENT_LOCK:
-            ue_attack_triggered = UE_EVENT_STATE["attack_triggered"]
-            if ue_attack_triggered:
-                UE_EVENT_STATE["attack_triggered"] = False
+            ue_attack_active = UE_EVENT_STATE["attack_active"]
 
-        if ue_attack_triggered:
-            proposed_action = "Attack"
+            ue_attack_start = UE_EVENT_STATE["attack_start_pulse"]
+            ue_attack_end = UE_EVENT_STATE["attack_end_pulse"]
+            ue_boss_hit = UE_EVENT_STATE["boss_hit_pulse"]
+            ue_player_hit = UE_EVENT_STATE["player_hit_pulse"]
+            ue_episode_done = UE_EVENT_STATE["episode_done_pulse"]
+
+            # pulse 讀完就清掉
+            UE_EVENT_STATE["attack_start_pulse"] = False
+            UE_EVENT_STATE["attack_end_pulse"] = False
+            UE_EVENT_STATE["boss_hit_pulse"] = False
+            UE_EVENT_STATE["player_hit_pulse"] = False
+            UE_EVENT_STATE["episode_done_pulse"] = False
+        
+        if ue_attack_start:
+            print("[UE event] attack start")
+        if ue_attack_end:
+            print("[UE event] attack end")
+        if ue_boss_hit:
+            print("[UE event] boss hit")
+        if ue_player_hit:
+            print("[UE event] player hit")
+        if ue_episode_done:
+            print("[UE event] episode done")
 
         action, pol_state, fire_frame = apply_action_with_state(
             pol_state,
@@ -104,6 +130,29 @@ def main():
             frame_id_end=frame_id_end,
             info=info
         )
+
+        append_rollout_step(
+            rollout_buffer,
+            frames,
+            extra_tensor,
+            bc_out["logits"],
+            bc_out["probs"],
+            proposed_action,
+            action,
+            info,
+            pol_state,
+            frame_id_end,
+            fire_frame,
+            ue_attack_active,
+            ue_attack_start,
+            ue_attack_end,
+            ue_boss_hit,
+            ue_player_hit,
+            ue_episode_done,
+        )
+
+        if len(rollout_buffer) >= ROLLOUT_SAVE_EVERY:
+            flush_rollout_buffer(rollout_buffer)
 
         print(
             f"[t={frame_id_end:05d}] "
@@ -357,16 +406,33 @@ def send_action(msg):
 def receive_from_ue():
     def on_attack_start(address, *args):
         with UE_EVENT_LOCK:
-            UE_EVENT_STATE["attack_triggered"] = True
-        print(f"[← UE] 開始攻擊！args: {args}")
+            UE_EVENT_STATE["attack_active"] = True
+            UE_EVENT_STATE["attack_start_pulse"] = True
+        print(f"[← UE] 開始攻擊！args: {args}\n")
 
     def on_attack_end(address, *args):
         with UE_EVENT_LOCK:
-            UE_EVENT_STATE["attack_triggered"] = False
-        print(f"[← UE] 結束攻擊！args: {args}")
+            UE_EVENT_STATE["attack_active"] = False
+            UE_EVENT_STATE["attack_end_pulse"] = True
+        print(f"[← UE] 結束攻擊！args: {args}\n")
 
     def on_fallback(address, *args):
-        print(f"[← UE] 未知訊息 {address}，args: {args}")
+        print(f"[← UE] 未知訊息 {address}，args: {args}\n")
+
+    def on_boss_hit(address, *args):
+        with UE_EVENT_LOCK:
+            UE_EVENT_STATE["boss_hit_pulse"] = True
+        print(f"[← UE] Boss 被擊中！args: {args}\n")
+
+    def on_player_hit(address, *args):
+        with UE_EVENT_LOCK:
+            UE_EVENT_STATE["player_hit_pulse"] = True
+        print(f"[← UE] 玩家被擊中！args: {args}\n")
+
+    def on_episode_done(address, *args):
+        with UE_EVENT_LOCK:
+            UE_EVENT_STATE["episode_done_pulse"] = True
+        print(f"[← UE] 回合結束！args: {args}\n")
 
     dp = dispatcher.Dispatcher()
     dp.map("/attatart", on_attack_start)
@@ -512,6 +578,74 @@ def build_extra_tensor(info, pol_state, frame_id_end):
 #         frame_id_end=np.int64(frame_id_end),
 #     )
 #     print(f"Saved teacher sample to {out_path}")
+
+def append_rollout_step(buffer, frames, extra, logits, prob, 
+                        proposed_action, final_action, info, 
+                        pol_state, frame_id_end, fire_frame,
+                        ue_attack_active, ue_attack_start, ue_attack_end, 
+                        ue_boss_hit, ue_player_hit, ue_episode_done):
+    step = {
+        "frames": frames.squeeze(0).detach().cpu().numpy(),   # shape (C,T,H,W)
+        "extra": extra.squeeze(0).detach().cpu().numpy(),     # shape (24,)
+        "logits": logits.squeeze(0).detach().cpu().numpy(),   # shape
+        "probs": prob.squeeze(0).detach().cpu().numpy(),       # shape (num_actions,)
+        "proposed_action_id": np.int64(ACTION_NAME_TO_ID[proposed_action]),
+        "final_action_id": np.int64(ACTION_NAME_TO_ID[final_action]),
+        "frame_id_end": np.int64(frame_id_end),
+        "fire_frame": np.int64(-1 if fire_frame is None else fire_frame),
+        "hold_until_frame": np.int64(pol_state["hold_until_frame"]),
+        "visible": np.int64(info["visible"]),
+        "phase": info["phase"],
+        "search_hint": info["search_hint"] if info["search_hint"] is not None else "none",
+        "motion": np.float32(info["motion"]),
+        "reward": np.float32(0.0),   # placeholder
+        "done": np.int64(0),     # placeholder
+        "ue_attack_active": np.int64(1 if ue_attack_active else 0),
+        "ue_attack_start": np.int64(1 if ue_attack_start else 0),
+        "ue_attack_end": np.int64(1 if ue_attack_end else 0),
+        "ue_boss_hit": np.int64(1 if ue_boss_hit else 0),
+        "ue_player_hit": np.int64(1 if ue_player_hit else 0),
+        "ue_episode_done": np.int64(1 if ue_episode_done else 0),
+    }
+    buffer.append(step)
+
+def flush_rollout_buffer(buffer):
+    if not buffer:
+        return
+    
+    out_dir = ROLLOUT_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = int(time.time() * 1000)
+    out_path = out_dir / f"rollout_{timestamp}.npz"
+
+    np.savez(
+        out_path,
+        frames=np.stack([x["frames"] for x in buffer], axis=0),                  # (N,3,8,192,192)
+        extra=np.stack([x["extra"] for x in buffer], axis=0),                    # (N,24)
+        logits=np.stack([x["logits"] for x in buffer], axis=0),                  # (N,10)
+        probs=np.stack([x["probs"] for x in buffer], axis=0),                    # (N,10)
+        proposed_action_id=np.asarray([x["proposed_action_id"] for x in buffer]),
+        final_action_id=np.asarray([x["final_action_id"] for x in buffer]),
+        frame_id_end=np.asarray([x["frame_id_end"] for x in buffer]),
+        fire_frame=np.asarray([x["fire_frame"] for x in buffer]),
+        hold_until_frame=np.asarray([x["hold_until_frame"] for x in buffer]),
+        visible=np.asarray([x["visible"] for x in buffer]),
+        phase=np.asarray([x["phase"] for x in buffer]),
+        search_hint=np.asarray([x["search_hint"] for x in buffer]),
+        motion=np.asarray([x["motion"] for x in buffer], dtype=np.float32),
+        reward=np.asarray([x["reward"] for x in buffer], dtype=np.float32),
+        done=np.asarray([x["done"] for x in buffer], dtype=np.int64),
+        ue_attack_active=np.asarray([x["ue_attack_active"] for x in buffer], dtype=np.int64),
+        ue_attack_start=np.asarray([x["ue_attack_start"] for x in buffer], dtype=np.int64),
+        ue_attack_end=np.asarray([x["ue_attack_end"] for x in buffer], dtype=np.int64),
+        ue_boss_hit_=np.asarray([x["ue_boss_hit"] for x in buffer], dtype=np.int64),
+        ue_player_hit=np.asarray([x["ue_player_hit"] for x in buffer], dtype=np.int64),
+        ue_episode_done=np.asarray([x["ue_episode_done"] for x in buffer], dtype=np.int64)
+    )
+
+    print(f"[rollout] saved {len(buffer)} steps -> {out_path}")
+    buffer.clear()
     
     
 if __name__ == "__main__":

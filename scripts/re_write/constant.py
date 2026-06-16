@@ -24,6 +24,9 @@ TEACHER_DATA_MODE = True
 TEACHER_EVADE_PROB = 0.25   
 TEACHER_EVADEBACK_PROB = 0.45 
 
+ROLLOUT_SAVE_EVERY = 32
+ROLLOUT_DIR = Path("data/rollouts")
+
 ACTION_ID_TO_NAME: dict[int, str] = {
     0: "Hold",
     1: "Advance",
