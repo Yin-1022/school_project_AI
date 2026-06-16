@@ -23,3 +23,61 @@ class Small3DNet(nn.Module):
         z = self.features(x)   # B,128,1,1,1
         z = z.flatten(1)       # B,128
         return self.head(z)
+    
+class TeacherPolicyNet(nn.Module):
+    def __init__(self, in_ch=3, extra_dim=24, num_actions=10):
+        super().__init__()
+
+        # Sequential 將多個層（Layer）或模組（Module）按順序組合在一起
+        self.visual = nn.Sequential(
+            nn.Conv3d(in_ch, 32, kernel_size=3, stride=1, padding=1), # 3D 卷積層看C,T,H,W 
+            nn.BatchNorm3d(32), 
+            nn.ReLU(inplace=True),
+            nn.MaxPool3d(kernel_size=(1,2,2)),  
+
+            nn.Conv3d(32, 64, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm3d(64),
+            nn.ReLU(inplace=True),
+            nn.MaxPool3d(kernel_size=(2,2,2)),
+
+            nn.Conv3d(64, 128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm3d(128),
+            nn.ReLU(inplace=True),
+            nn.AdaptiveAvgPool3d((1,1,1))      # 聚合到 1×1×1
+        )
+
+        self.extra_mlp = nn.Sequential(
+            nn.Linear(extra_dim, 64),
+            nn.ReLU(inplace=True),
+            nn.Linear(64, 64),
+            nn.ReLU(inplace=True)
+        )
+
+        self.head = nn.Sequential(
+            nn.Linear(128 + 64, 128),
+            nn.ReLU(inplace=True),
+            nn.Linear(128, num_actions)
+        )
+
+    def forward(self, frames, extra):
+        v = self.visual(frames)   # B,128,1,1,1
+        v = v.flatten(1)         # B,128
+
+        e = self.extra_mlp(extra) # B,64
+
+        z = torch.cat([v, e], dim=1) # B,192
+        return self.head(z)      # B,num_actions
+        
+class ExtraOnlyPolicyNet(nn.Module):
+    def __init__(self, extra_dim=24, num_actions=10):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(extra_dim, 64),
+            nn.ReLU(inplace=True),
+            nn.Linear(64, 64),
+            nn.ReLU(inplace=True),
+            nn.Linear(64, num_actions),
+        )
+
+    def forward(self, frames, extra):
+        return self.net(extra)

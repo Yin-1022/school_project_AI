@@ -28,6 +28,7 @@ def update(state, frames, pred_name, visible, frame_id_end):
         phase = "track"
         last_visible_ts_ms = now_ms
         invisible_acc_ms = 0
+        search_hint = dir_new
     else :
         invisible_acc_ms += delta_t_ms
         if (now_ms - last_visible_ts_ms) <= REACQ_GRACE_MS:
@@ -69,7 +70,7 @@ def stateInit():
     return state
     
 
-def motionGate(frames, pred_name, visible, gate=0.018):
+def motionGate(frames, pred_name, visible, gate=0.006):
     T = frames.shape[2]
 
     total_motion = 0.0
@@ -84,12 +85,13 @@ def motionGate(frames, pred_name, visible, gate=0.018):
 
     motion = (total_motion / (T - 1)).item()                     # 8 幀 → 7 個差分的平均
     stop   = 1 if motion < gate else 0
+    visible_before = visible
 
     if stop == 1:
         pred_name = "none"
         visible   = 0
 
-    print(f"[motion-gate] motion={motion:.5f} gate={gate} stop={stop}")
+    print(f"[motion-gate] pred={pred_name} motion={motion:.5f} gate={gate} stop={stop} visible_in={visible_before}")
     return {"motion": motion, "stop": stop, "pred_name": pred_name, "visible": visible}
 
 def estiDirections(frames, kappa=0.07, eps=1e-8):
@@ -131,3 +133,49 @@ def estiDirections(frames, kappa=0.07, eps=1e-8):
         direction = "center"
     print(f"direction={direction}")
     return direction
+
+obs_features = {
+    "frame" : {
+        "shape" : (3,8,192,192),
+        "dtype" : "float32",
+        "range" : [0, 1]
+    },
+    "extra" : {
+        "shape" : (24,),
+        "dtype" : "float32",
+        "features" : {
+            "visible" : [0,1],
+            "motion" : [0,1],
+            "phase" : {
+                "track" : [1,0,0],
+                "reacq" : [0,1,0],
+                "patrol" : [0,0,1]
+            }
+        },
+        "search_hint" : {
+            "left" : [1,0,0,0],
+            "right" : [0,1,0,0],
+            "center" : [0,0,1,0],
+            "none" : [0,0,0,1]
+        },
+        "last_action" : {
+            "Hold" : [1,0,0,0,0,0,0,0,0,0], 
+            "Advance" : [0,1,0,0,0,0,0,0,0,0],
+            "StrafeLeft" : [0,0,1,0,0,0,0,0,0,0],
+            "StrafeRight" : [0,0,0,1,0,0,0,0,0,0],
+            "EvadeBack" : [0,0,0,0,1,0,0,0,0,0],
+            "Retreat" : [0,0,0,0,0,1,0,0,0,0],
+            "SearchTurnLeft" : [0,0,0,0,0,0,1,0,0,0],
+            "SearchTurnRight" : [0,0,0,0,0,0,0,1,0,0],
+            "PatrolStepLeft" : [0,0,0,0,0,0,0,0,1,0],
+            "PatrolStepRight" : [0,0,0,0,0,0,0,0,0,1]
+        },
+        "time_since_last_action" : [0,1],
+        "hold_active" : [0,1],
+        "cooldown_flag" : {
+            "evade_ready" : [1,0,0],
+            "turn_ready" : [0,1,0],
+            "patrol_ready" : [0,0,1]
+        }
+    }
+}

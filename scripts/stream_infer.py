@@ -2,42 +2,47 @@ import cv2
 from pathlib import Path
 import collections
 import torch
-from models import Small3DNet
-import numpy as np
 from visibility import update as vis_update
-from policy import init_state as policy_init, step as policy_step
-import socket
-import json
-from pythonosc.udp_client import SimpleUDPClient
+from policy import init_state as policy_init
+from stream_io import send_action, receive_from_ue, tcp_frame_stream, next_seq
+from observation_builder import build_frame_tensor, build_extra_tensor, ACTION_NAME_TO_ID
+from policy_inference import load_model, infer_action
+from action_postprocess import apply_action_with_state
+from rollout_logger import append_rollout_step, flush_rollout_buffer
+import threading
+from constant import (
+    ACTION_ID_TO_NAME,
+    ROLLOUT_SAVE_EVERY,
+)
 
-_OSC_CLIENT = None
-
-RAW_DIR = Path("data/raw_videos")
-video_path = RAW_DIR / "raw_video_4_t.mp4"
-WEIGHTS_PATH = Path("data/meta/best_action_cls.pt")
+# RAW_DIR = Path("data/raw_videos")
+# video_path = RAW_DIR / "raw_video_4_t.mp4"
+WEIGHTS_PATH = Path("data/meta/best_teacher_policy.pt")
 CLIP_FRAMES     = 8          # 每個 clip 的影格數
 CLIP_STRIDE     = 4          # 滑窗步長
 TARGET_FPS      = 12
 FRAME_SIZE      = (192, 192)
 SEQ = 0
-_UDP_SOCK = None
+UE_EVENT_STATE = {
+    "attack_active": False,
+    "attack_start_pulse": False,
+    "attack_end_pulse": False,
+    "boss_hit_pulse": False,
+    "player_hit_pulse": False,
+    "episode_done_pulse": False,
+}
+UE_EVENT_LOCK = threading.Lock()
 
 def main():
+    rollout_buffer = [] 
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = load_model(str(WEIGHTS_PATH), device=device)
+    receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE)
+
     vis_state = None                    
     pol_state = policy_init() 
-    
-    model = load_model(str(WEIGHTS_PATH), device="cuda" if torch.cuda.is_available() else "cpu")
 
     frame_ring_buffer = collections.deque(maxlen=CLIP_FRAMES)
-    # cap = cv2.VideoCapture(str(video_path))
-    # if not cap.isOpened():
-    #     print(f"[warn] cannot open source video: {video_path}")
-    #     return []  
-
-    # src_fps = cap.get(cv2.CAP_PROP_FPS) or TARGET_FPS       #取OpenCV宣告影片的FPS。
-    # frame_interval = max(1, round(src_fps / TARGET_FPS))    #幀取樣間隔，例如每五幀取一幀，至少一幀。
-    # frame_ring_buffer = collections.deque(maxlen=8)
-
     idx = 0
     pushed_frames = 0
     recv_frames = 0
@@ -54,228 +59,139 @@ def main():
         frame_ring_buffer.append(frame)
         pushed_frames += 1
 
-        if len(frame_ring_buffer) == CLIP_FRAMES and pushed_frames % CLIP_STRIDE == 0:
-            frames = list(frame_ring_buffer)
-            frames = np.stack(frames, axis=0).astype(np.float32) / 255.0   # T,H,W,C
-            frames = np.transpose(frames, (3,0,1,2))                       # C,T,H,W
-            frames = torch.from_numpy(frames).unsqueeze(0)                 # 1,C,T,H,W
+        if len(frame_ring_buffer) < CLIP_FRAMES:
+            continue
+        if pushed_frames % CLIP_STRIDE != 0:
+            continue
 
-            output = infer_clip(frames, model, (pushed_frames - 1))
+        frame_id_end = pushed_frames - 1
+        frames = build_frame_tensor(frame_ring_buffer)
 
-            info, vis_state = vis_update(
-                vis_state,
-                frames,
-                output["pred_name"],
-                output["visible"],
-                output["frame_id_end"]
-            )
+        info, vis_state = vis_update(
+            vis_state,
+            frames,
+            pred_name="idle",
+            visible=1,
+            frame_id_end=frame_id_end,
+        )
 
-            cmd, pol_state, params, fire_frame = policy_step(
-                pol_state,
-                pred_name=info["pred_name"],
-                conf=output["conf"],
-                visible=info["visible"],
-                phase=info["phase"],
-                search_hint=info["search_hint"],
-                frame_id_end=output["frame_id_end"]
-            )
+        extra_tensor = build_extra_tensor(info, pol_state, frame_id_end)
 
-            print(
-                f"[t={output['frame_id_end']:05d}] "
-                f"pred={output['pred_name']}({output['conf']:.2f}) "
-                f"vis={info['visible']} phase={info['phase']} "
-                f"hint={info['search_hint']} motion={info['motion']:.4f} "
-                f"→ cmd={cmd} params={params} fire@{fire_frame} hold_until={pol_state['hold_until_frame']}"
-            )
+        bc_out = infer_action(frames, extra_tensor, model)
+        proposed_action = bc_out["action_name"]
+        action_conf = bc_out["conf"]
+        topk_actions = [ACTION_ID_TO_NAME[id] for id in bc_out["topk_ids"][0]]
+        topk_confs = bc_out["topk_probs"][0]
 
-            jsonMsg = {
-                "type": "boss_cmd",
-                "ts_frame": output["frame_id_end"],
-                "fire_frame": fire_frame,
-                "hold_until": pol_state["hold_until_frame"],
-                "cmd": cmd,
-                "params": params,
-                "meta": {
-                    "pred": output["pred"],
-                    "conf": output["conf"],
-                    "phase": info["phase"],
-                    "search_hint": info["search_hint"]
-                },
-                "seq": next_seq()
-            }
+        with UE_EVENT_LOCK:
+            ue_attack_active = UE_EVENT_STATE["attack_active"]
 
-            if fire_frame is not None:
-                send_cmd(jsonMsg)
-    # while True:
-    #     ok, frame = cap.read()
-    #     if not ok:
-    #             break
-    #     if idx % frame_interval == 0:
-    #         frame = cv2.resize(frame, FRAME_SIZE, interpolation=cv2.INTER_AREA) #插值法，即用周圍像素去「估計」新像素值，INTER_AREA適合縮小圖像
-    #         frame_ring_buffer.append(frame)
-    #         pushed_frames += 1
+            ue_attack_start = UE_EVENT_STATE["attack_start_pulse"]
+            ue_attack_end = UE_EVENT_STATE["attack_end_pulse"]
+            ue_boss_hit = UE_EVENT_STATE["boss_hit_pulse"]
+            ue_player_hit = UE_EVENT_STATE["player_hit_pulse"]
+            ue_episode_done = UE_EVENT_STATE["episode_done_pulse"]
 
-    #         if len(frame_ring_buffer) == 8 and pushed_frames % CLIP_STRIDE == 0:
-    #             frames = list(frame_ring_buffer)
-    #             frames = np.stack(frames, axis=0).astype(np.float32) / 255.0  # T,H,W,C
-    #             frames = np.transpose(frames, (3,0,1,2))  # C,T,H,W
-    #             frames = torch.tensor(frames).unsqueeze(0)  # Add batch dimension: 1,C,T,H,W
-    #             output = infer_clip(frames, model, (pushed_frames - 1))
-    #             info, vis_state = vis_update(
-    #                 vis_state, 
-    #                 frames, 
-    #                 output["pred_name"], 
-    #                 output["visible"], 
-    #                 output["frame_id_end"]
-    #             )
-    #             cmd, pol_state, params, fire_frame = policy_step(
-    #                 pol_state,
-    #                 pred_name=info["pred_name"],         
-    #                 conf=output["conf"],
-    #                 visible=info["visible"],
-    #                 phase=info["phase"],
-    #                 search_hint=info["search_hint"],
-    #                 frame_id_end=output["frame_id_end"]
-    #             )
-    #             print(f"frame_id_end: {output['frame_id_end']}, pred_name: {output['pred_name']} conf: {output['conf']:.4f}, visible: {output['visible']}")
-    #             print(
-    #                 f"[t={output['frame_id_end']:05d}] "
-    #                 f"pred={output['pred_name']}({output['conf']:.2f}) "
-    #                 f"vis={info['visible']} phase={info['phase']} "
-    #                 f"hint={info['search_hint']} motion={info['motion']:.4f} "
-    #                 f"→ cmd={cmd} params={params} fire@{fire_frame} hold_until={pol_state['hold_until_frame']}"
-    #             )
-    #             jsonMsg = {
-    #                 "type": "boss_cmd",
-    #                 "ts_frame": output["frame_id_end"],              # 這次事件的尾幀
-    #                 "fire_frame": fire_frame,            # 何時生效（frame_id_end + RT_FRAMES）
-    #                 "hold_until": pol_state["hold_until_frame"],            # 最短持有到幀
-    #                 "cmd": cmd,           # 指令名稱
-    #                 "params": params, # Strafe/Search 用
-    #                 "meta": {
-    #                     "pred": output["pred"],
-    #                     "conf": output["conf"],
-    #                     "phase": info["phase"],
-    #                     "search_hint": info["search_hint"]
-    #                 },
-    #                 "seq": next_seq()
-    #             }
-    #             if fire_frame is not None:
-    #                 send_cmd(jsonMsg)
-    #     idx += 1
+            # pulse 讀完就清掉
+            UE_EVENT_STATE["attack_start_pulse"] = False
+            UE_EVENT_STATE["attack_end_pulse"] = False
+            UE_EVENT_STATE["boss_hit_pulse"] = False
+            UE_EVENT_STATE["player_hit_pulse"] = False
+            UE_EVENT_STATE["episode_done_pulse"] = False
         
-    # cap.release()
+        if ue_attack_start:
+            print("[UE event] attack start")
+        if ue_attack_end:
+            print("[UE event] attack end")
+        if ue_boss_hit:
+            print("[UE event] boss hit")
+        if ue_player_hit:
+            print("[UE event] player hit")
+        if ue_episode_done:
+            print("[UE event] episode done")
 
-def infer_clip(frames, model, frame_id_end):
-    # Process the 8 frames for inference
-    input_tensor = frames.to(next(model.parameters()).device)
-    with torch.no_grad():
-        outputs = model(input_tensor)
-    probs = torch.softmax(outputs, dim=1)
-    pred = probs.argmax(dim=1).item()
-    conf = probs[0, pred].item()
-    pred_name = id_to_name(pred)        # 總是給出類別名稱
-    visible = 1                         # 先當作可見，交給 3C 的 motion gate 來關掉
-    return {"frame_id_end": frame_id_end, "pred": pred, "pred_name": pred_name, "conf": conf, "visible": visible, "outputs": outputs}
-        
-def id_to_name(pred_id):
-    id_to_class = {
-        0: "idle",
-        1: "move",
-        2: "attack",
-        3: "roll",
-        4: "none",
-        5: "jump"
-    }
-    return id_to_class.get(pred_id, "")
+        action, pol_state, fire_frame = apply_action_with_state(
+            pol_state,
+            proposed_action=proposed_action,
+            topk_actions=topk_actions,
+            frame_id_end=frame_id_end,
+            info=info
+        )
 
-def load_model(weights_path:str, device:str ="cuda"):
-    model = Small3DNet(in_ch=3, num_classes=6)
-    model.to(device)
-    model.load_state_dict(torch.load(weights_path, map_location=device))
-    model.eval()
-    return model
+        append_rollout_step(
+            rollout_buffer,
+            frames,
+            extra_tensor,
+            bc_out["logits"],
+            bc_out["probs"],
+            proposed_action,
+            action,
+            info,
+            pol_state,
+            frame_id_end,
+            fire_frame,
+            ue_attack_active,
+            ue_attack_start,
+            ue_attack_end,
+            ue_boss_hit,
+            ue_player_hit,
+            ue_episode_done,
+        )
 
-def get_osc_client():
-    global _OSC_CLIENT
-    if _OSC_CLIENT is None:
-        _OSC_CLIENT = SimpleUDPClient("127.0.0.1", 9999)
-    return _OSC_CLIENT
+        if len(rollout_buffer) >= ROLLOUT_SAVE_EVERY:
+            flush_rollout_buffer(rollout_buffer)
 
-def send_cmd(msg):
-    client = get_osc_client()
+        print(
+            f"[t={frame_id_end:05d}] "
+            f"vis={info['visible']} phase={info['phase']} "
+            f"hint={info['search_hint']} motion={info['motion']:.4f} "
+            f"→ bc_action={proposed_action}({action_conf:.2f}) "
+            f"final_action={action} fire@{fire_frame} hold_until={pol_state['hold_until_frame']}"
+            f" topk={list(zip(topk_actions, topk_confs))}"
+        )
 
-    params = msg.get("params", {}) or {}
-    direction = params.get("direction", "")
+        if fire_frame is None:
+            continue
 
-    args = [
-        msg["cmd"],                             # string
-        int(msg["ts_frame"]),                   # int
-        int(msg["fire_frame"]),                 # int
-        int(msg["hold_until"]),                 # int
-        float(msg["meta"]["conf"]),             # float
-        str(msg["meta"]["phase"]),              # string
-        str(msg["meta"]["search_hint"] or ""),  # string
-        str(direction),                         # string
-        int(msg["seq"]),                        # int
-    ]
+        jsonMsg = {
+            "type": "boss_action",
+            "ts_frame": frame_id_end,
+            "fire_frame": fire_frame,
+            "hold_until": pol_state["hold_until_frame"],
+            "action": action,
+            "params": {},
+            "meta": {
+                "conf": action_conf,
+                "phase": info["phase"],
+                "search_hint": info["search_hint"],
+            },
+            "seq": next_seq(SEQ)
+        }
 
-    client.send_message("/boss/cmd", args)
+        send_action(jsonMsg)
+
+# def save_teacher_sample(frames, extra, action_name, frame_id_end):
+#     out_dir = Path("data/teacher_samples")
+#     out_dir.mkdir(parents=True, exist_ok=True)
+
+#     frames = frames.squeeze(0).detach().cpu().numpy()   # shape (C,T,H,W)
+#     extra = extra.squeeze(0).detach().cpu().numpy()     # shape (24,)
+#     if action_name not in ACTION_NAME_TO_ID:
+#         raise ValueError(f"Unknown action_name: {action_name}")
+#     action_id = ACTION_NAME_TO_ID[action_name]
+
+#     timestamp = int(time.time() * 1000)
+#     out_path = out_dir / f"sample_{timestamp}_{frame_id_end:06d}.npz"
+
+#     np.savez(
+#         out_path, 
+#         frames=frames, 
+#         extra=extra, 
+#         action_id=np.int64(action_id),
+#         action_name=action_name,
+#         frame_id_end=np.int64(frame_id_end),
+#     )
+#     print(f"Saved teacher sample to {out_path}")
     
-def next_seq():
-    global SEQ
-    SEQ += 1
-    return SEQ
-
-def tcp_frame_stream(host='127.0.0.1', port=9999, img_w=192, img_h=192, img_c=3, debug_show=False):
-    frame_size = img_w * img_h * img_c
-
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server_socket.bind((host, port))
-    server_socket.listen(1)
-
-    print("=== Python 推論伺服器已就緒 ===")
-
-    while True:
-        print(f"[等待中] 正在監聽 Port {port}...")
-        conn = None
-        try:
-            conn, addr = server_socket.accept()
-            print(f"[已連線] 與 UE 建立連線: {addr}")
-
-            data_buffer = b""
-            while True:
-                while len(data_buffer) < frame_size:
-                    packet = conn.recv(frame_size - len(data_buffer))
-                    if not packet:
-                        print("[通知] UE 連線中斷")
-                        raise ConnectionResetError
-                    data_buffer += packet
-
-                frame_data = data_buffer[:frame_size]
-                data_buffer = data_buffer[frame_size:]
-
-                frame_rgb = np.frombuffer(frame_data, dtype=np.uint8).reshape((img_h, img_w, img_c))
-
-                # 模型若沿用 OpenCV 訓練資料，建議轉回 BGR
-                frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-
-                # if debug_show:
-                #     cv2.imshow("UE Boss Vision", frame_bgr)
-                #     if cv2.waitKey(1) & 0xFF == ord('q'):
-                #         raise KeyboardInterrupt
-
-                conn.sendall(b"OK")
-                yield frame_bgr
-
-        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
-            print("[系統] 目前連線已中斷，回到監聽狀態")
-        finally:
-            if conn is not None:
-                conn.close()
-            if debug_show:
-                cv2.destroyAllWindows()
-
 if __name__ == "__main__":
     main()

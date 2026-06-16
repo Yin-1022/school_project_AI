@@ -6,9 +6,13 @@ def init_state():
         "fsm_state": "Patrol",
         "hold_until_frame": -1,
         "cooldowns" : {"EvadeBack":0,"SearchTurn":0,"PatrolStep":0},
-        "last_cmd": "Hold", 
-        "last_cmd_at_frame": -1,
-        "rt_queue": []
+        "last_action": "Hold", 
+        "last_action_at_frame": -1,
+        "rt_queue": [],
+        "same_action_streak": 0,
+        "last_proposed_action": None,
+        "hold_streak": 0,
+        "last_non_hold_action": "Hold",
     }
     return state
 
@@ -21,87 +25,121 @@ def arm_cooldown(state, key, fire_frame, cd_frames):
 def step(state, *, pred_name, conf, visible, phase, search_hint, frame_id_end):
     fsm_state = state["fsm_state"]
     hold_until_frame = state["hold_until_frame"]
-    last_cmd = state["last_cmd"]
+    last_action = state["last_action"]
     rt_queue = state["rt_queue"]
 
-    cmd = "Hold"
+    action = "Hold"
     params = {}
-    new_cmd_selected = False
+    new_action_selected = False
+    teacher_force_evasive = False
 
-    if visible==1 and pred_name=="attack":
-            fsm_state = "Evade"
-            new_cmd_selected = True
-            if is_ready(state, "EvadeBack", frame_id_end) and conf>=const.TAU_ACTION:
-                cmd = "EvadeBack"
+    if const.TEACHER_DATA_MODE:
+        if visible == 1 and frame_id_end >= hold_until_frame:
+            if random.random() < const.TEACHER_EVADE_PROB:
+                teacher_force_evasive = True
+
+    if visible == 1 and (pred_name == "attack" or teacher_force_evasive):
+        fsm_state = "Evade"
+        new_action_selected = True
+
+        if is_ready(state, "EvadeBack", frame_id_end):
+            if const.TEACHER_DATA_MODE and teacher_force_evasive:
+                if random.random() < const.TEACHER_EVADEBACK_PROB:
+                    action = "EvadeBack"
+                else:
+                    action = "Retreat"
             else:
-                cmd = "Retreat"
+                if conf >= const.TAU_ACTION:
+                    action = "EvadeBack"
+                else:
+                    action = "Retreat"
+        else:
+            action = "Retreat"
 
-    if not new_cmd_selected and frame_id_end < hold_until_frame:
-        cmd = last_cmd
+    # if visible==1 and pred_name=="attack":
+    #         fsm_state = "Evade"
+    #         new_action_selected = True
+    #         if is_ready(state, "EvadeBack", frame_id_end) and conf>=const.TAU_ACTION:
+    #             action = "EvadeBack"
+    #         else:
+    #             action = "Retreat"
+
+    if new_action_selected:
+        pass
+    elif frame_id_end < hold_until_frame:
+        action = last_action
         state["fsm_state"] = fsm_state
-        return cmd, state, {}, None
+        return action, state, {}, None
     else:
         # Normal FSM logic here 
         if visible==0:
             if phase=="patrol":
                 fsm_state = "Patrol"
                 if is_ready(state, "PatrolStep", frame_id_end):
-                    cmd = "PatrolStep"
-                    if search_hint in ["left","right"]:
-                        params={"direction": search_hint}
+                    if search_hint == "left":
+                        action = "PatrolStepLeft"
+                    elif search_hint == "right":
+                        action = "PatrolStepRight"
                     else:
-                        params={"direction": random.choice(['left','right'])}
+                        action = random.choice(["PatrolStepLeft", "PatrolStepRight"])
                 else:
-                    cmd = "Hold"
+                    action = "Hold"
             elif phase=="reacq":
                 fsm_state = "Search"
                 if is_ready(state, "SearchTurn", frame_id_end):
-                    cmd = "SearchTurn"
                     if search_hint == "left":
-                        params={"direction": "left"}
+                        action = "SearchTurnLeft"
                     elif search_hint == "right":
-                        params={"direction": "right"}
+                        action = "SearchTurnRight"
                     else:
-                        params={"direction": random.choice(['left','right'])}
+                        action = random.choice(["SearchTurnLeft", "SearchTurnRight"])
                 else:
                     if is_ready(state, "PatrolStep", frame_id_end):
                         fsm_state = "Patrol"
-                        cmd = "PatrolStep"
-                        if search_hint in ["left","right"]:
-                            params={"direction": search_hint}
+                        if search_hint == "left":
+                            action = "PatrolStepLeft"
+                        elif search_hint == "right":
+                            action = "PatrolStepRight"
                         else:
-                            params={"direction": random.choice(['left','right'])}
+                            action = random.choice(["PatrolStepLeft", "PatrolStepRight"])
                     else:
-                        cmd = "Hold"  
+                        action = "Hold"  
         elif visible==1 and pred_name in {"move", "idle", "roll"}:
             fsm_state = "Chase"
             # rand_outcome = random.random() < 0.2 
             # if rand_outcome:
             n = (frame_id_end // const.CLIP_STRIDE)
-            if n % 5 == 0:
-                if search_hint == "left":
-                    cmd = "StrafeLeft"
-                elif search_hint == "right":
-                    cmd = "StrafeRight"
-                else:
-                    cmd = "Advance"
+            # if n % 2 == 0:
+            if search_hint == "left":
+                action = "StrafeLeft"
+            elif search_hint == "right":
+                action = "StrafeRight"
             else:
-                cmd = "Advance"
+                action = "Advance"
+            # if n % 5 == 0:
+            #     if search_hint == "left":
+            #         action = "StrafeLeft"
+            #     elif search_hint == "right":
+            #         action = "StrafeRight"
+            #     else:
+            #         action = "Advance"
+            # else:
+            #     action = "Advance"
         else:
             fsm_state = "Patrol"
-            cmd = "Hold"
+            action = "Hold"
         
-    if new_cmd_selected or cmd != last_cmd:
+    if new_action_selected or action != last_action:
         fire_frame = frame_id_end + const.RT_FRAMES
         state["hold_until_frame"] = fire_frame + const.MIN_HOLD_FRAMES
-        state["last_cmd"] = cmd
-        state["last_cmd_at_frame"] = frame_id_end
+        state["last_action"] = action
+        state["last_action_at_frame"] = frame_id_end
 
-        if cmd == "EvadeBack":
+        if action == "EvadeBack":
             arm_cooldown(state, "EvadeBack", fire_frame, const.CD_EVADE)
-        elif cmd == "SearchTurn":
+        elif action in {"SearchTurnLeft", "SearchTurnRight"}:
             arm_cooldown(state, "SearchTurn", fire_frame, const.CD_TURN)
-        elif cmd == "PatrolStep":
+        elif action in {"PatrolStepLeft", "PatrolStepRight"}:
             arm_cooldown(state, "PatrolStep", fire_frame, const.CD_PATROL)
     else:
         fire_frame = None  # 沒有新指令，不產生新的 fire/hold
@@ -110,4 +148,4 @@ def step(state, *, pred_name, conf, visible, phase, search_hint, frame_id_end):
     state["fsm_state"] = fsm_state
     state["rt_queue"] = rt_queue
 
-    return cmd, state, params, fire_frame
+    return action, state, params, fire_frame
