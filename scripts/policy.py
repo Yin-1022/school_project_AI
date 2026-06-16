@@ -31,7 +31,7 @@ def step(state, *, pred_name, conf, visible, phase, search_hint, frame_id_end):
     if visible==1 and pred_name=="attack":
             fsm_state = "Evade"
             new_cmd_selected = True
-            if is_ready(state, "EvadeBack", frame_id_end) and conf>=const.TAU_CMD:
+            if is_ready(state, "EvadeBack", frame_id_end) and conf>=const.TAU_ACTION:
                 cmd = "EvadeBack"
             else:
                 cmd = "Retreat"
