@@ -28,19 +28,23 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE):
             UE_EVENT_STATE["boss_hit_pulse"] = True
         print(f"[← UE] Boss 被擊中！args: {args}\n")
 
-    def on_player_hit(address, *args):
+    def on_health_changed(address, *args):
+        health = args[0]
         with UE_EVENT_LOCK:
             UE_EVENT_STATE["player_hit_pulse"] = True
-        print(f"[← UE] 玩家被擊中！args: {args}\n")
+        print(f"[← UE] 玩家血量：{health}")
 
     def on_episode_done(address, *args):
         with UE_EVENT_LOCK:
-            UE_EVENT_STATE["episode_done_pulse"] = True
+            UE_EVENT_STATE["episode_done_flag"] = True
         print(f"[← UE] 回合結束！args: {args}\n")
 
     dp = dispatcher.Dispatcher()
     dp.map("/attatart", on_attack_start)
     dp.map("/attend",   on_attack_end)
+    dp.map("/enemy_take_damage", on_boss_hit)
+    dp.map("/player_health", on_health_changed)
+    dp.map("/game_over", on_episode_done)
     dp.set_default_handler(on_fallback)
 
     server = osc_server.ThreadingOSCUDPServer(("0.0.0.0", 12346), dp)
@@ -87,10 +91,6 @@ def send_action(msg):
 
     client.send_message("/boss/action", args)
 
-def next_seq(SEQ):
-    SEQ += 1
-    return SEQ
-
 def tcp_frame_stream(host='127.0.0.1', port=9999, img_w=192, img_h=192, img_c=3, debug_show=False):
     frame_size = img_w * img_h * img_c
 
@@ -130,6 +130,7 @@ def tcp_frame_stream(host='127.0.0.1', port=9999, img_w=192, img_h=192, img_c=3,
 
         except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
             print("[系統] 目前連線已中斷，回到監聽狀態")
+            yield None
         except KeyboardInterrupt:
             print("[系統] 收到中斷事件，忽略這次中斷並回到監聽狀態")
         finally:

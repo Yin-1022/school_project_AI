@@ -33,4 +33,5 @@ def infer_action(frames, extra, model):
         "probs": probs,
         "topk_ids": topk_ids.cpu().numpy(),
         "topk_probs": topk_probs.cpu().numpy(),
+        # "value": value,
     }

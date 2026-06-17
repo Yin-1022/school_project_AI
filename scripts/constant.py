@@ -19,13 +19,17 @@ CD_PATROL = round(0.5 * TARGET_FPS)
 CD_STRAFE = round(0.6 * TARGET_FPS)
 SAME_ACTION_REFIRE_FRAMES = 4
 
-TEACHER_DATA_MODE = True
-
+TEACHER_DATA_MODE = False
 TEACHER_EVADE_PROB = 0.25   
 TEACHER_EVADEBACK_PROB = 0.45 
 
-ROLLOUT_SAVE_EVERY = 32
-ROLLOUT_DIR = Path("data/rollouts")
+POLICY_MODE = "bc"
+
+ROLLOUT_SAVE_EVERY = 1000
+if POLICY_MODE == "bc":
+    ROLLOUT_DIR = Path("data/rollouts/rollouts_bc")
+else:
+    ROLLOUT_DIR = Path("data/rollouts/rollouts_rule")
 
 ACTION_ID_TO_NAME: dict[int, str] = {
     0: "Hold",
