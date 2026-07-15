@@ -8,6 +8,7 @@ def update(state, frames, pred_name, visible, frame_id_end):
     invisible_acc_ms = state["invisible_acc_ms"]
     last_seen_dir = state["last_seen_dir"]
     last_visible_ts_ms = state["last_visible_ts_ms"]
+    lost_visible_streak = state.get("lost_visible_streak", 0)
     REACQ_GRACE_MS = 1000
     PATROL_TIMEOUT_MS = 3000
     now_ms = (frame_id_end + 1) * ms_per_frame
@@ -17,6 +18,7 @@ def update(state, frames, pred_name, visible, frame_id_end):
     motion, stop, pred_name, visible = mg["motion"], mg["stop"], mg["pred_name"], mg["visible"]
 
     if visible == 1:
+        lost_visible_streak = 0
         dir_new = estiDirections(frames)
         if dir_new == state["dir_candidate"]:
             state["dir_hysteresis_cnt"] += 1
@@ -30,13 +32,20 @@ def update(state, frames, pred_name, visible, frame_id_end):
         invisible_acc_ms = 0
         search_hint = dir_new
     else :
+        lost_visible_streak += 1
         invisible_acc_ms += delta_t_ms
-        if (now_ms - last_visible_ts_ms) <= REACQ_GRACE_MS:
-            phase = "reacq"
-        elif invisible_acc_ms > PATROL_TIMEOUT_MS:
-            phase = "patrol"
+        search_hint = last_seen_dir
+
+        if lost_visible_streak < 2:
+            phase = "track"
+            # 注意：這裡不要再把 visible 改回 1
         else:
-            phase = "reacq"
+            if (now_ms - last_visible_ts_ms) <= REACQ_GRACE_MS:
+                phase = "reacq"
+            elif invisible_acc_ms > PATROL_TIMEOUT_MS:
+                phase = "patrol"
+            else:
+                phase = "reacq"
     
     if phase == "reacq":
         search_hint = last_seen_dir
@@ -48,13 +57,15 @@ def update(state, frames, pred_name, visible, frame_id_end):
                 "motion": motion,              # 方便 log/調參
                 "invisible_acc_ms": invisible_acc_ms,          # 決策層可看它換策略
                 "last_seen_dir": last_seen_dir,
-                "last_visible_ts_ms": last_visible_ts_ms}
+                "last_visible_ts_ms": last_visible_ts_ms,
+                "lost_visible_streak": lost_visible_streak}
     
     state["invisible_acc_ms"] = invisible_acc_ms
     state["last_seen_dir"] = last_seen_dir
     state["last_visible_ts_ms"] = last_visible_ts_ms
     state["dir_candidate"] = state.get("dir_candidate", "center")
     state["dir_hysteresis_cnt"] = state.get("dir_hysteresis_cnt", 0)
+    state["lost_visible_streak"] = lost_visible_streak
 
     return out, state
 
@@ -65,7 +76,8 @@ def stateInit():
         "last_visible_ts_ms": 0,
         "last_seen_dir": "center",
         "dir_candidate": "center",
-        "dir_hysteresis_cnt": 0
+        "dir_hysteresis_cnt": 0,
+        "lost_visible_streak": 0,
     }
     return state
     
@@ -91,7 +103,7 @@ def motionGate(frames, pred_name, visible, gate=0.006):
         pred_name = "none"
         visible   = 0
 
-    print(f"[motion-gate] pred={pred_name} motion={motion:.5f} gate={gate} stop={stop} visible_in={visible_before}")
+    print(f"[motion-gate] pred={pred_name} motion={motion:.5f} gate={gate} stop={stop} input_visible={visible_before}")
     return {"motion": motion, "stop": stop, "pred_name": pred_name, "visible": visible}
 
 def estiDirections(frames, kappa=0.07, eps=1e-8):

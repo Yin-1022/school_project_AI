@@ -22,6 +22,76 @@ def apply_action_with_state(pol_state, proposed_action, topk_actions, frame_id_e
     pol_state["same_action_streak"] = same_action_streak
 
     action = proposed_action
+    visible = info.get("visible", 0)
+    phase = info.get("phase", "patrol")
+    search_hint = info.get("search_hint", None)
+
+    if visible == 1 and phase == "track":
+        if action in {"SearchTurnLeft", "SearchTurnRight", "PatrolStepLeft", "PatrolStepRight"}:
+            if search_hint == "left":
+                action = "StrafeLeft"
+            elif search_hint == "right":
+                action = "StrafeRight"
+            else:
+                action = "Advance"
+    
+    if visible == 1 and phase == "track":
+        if action == "Retreat" and same_action_streak > 2:
+            fallback = None
+
+            # 先優先找橫移
+            for cand in topk_actions:
+                if cand in {"StrafeLeft", "StrafeRight"} and cand != action:
+                    fallback = cand
+                    break
+
+            # 再找 Advance
+            if fallback is None:
+                for cand in topk_actions:
+                    if cand == "Advance":
+                        fallback = cand
+                        break
+
+            if fallback is not None:
+                action = fallback
+                pol_state["same_action_streak"] = 1
+                pol_state["last_proposed_action"] = action
+    
+    if visible == 1 and phase == "track" and search_hint == "center":
+        if action == "Retreat":
+            fallback = None
+
+            for cand in topk_actions:
+                if cand == "Advance":
+                    fallback = cand
+                    break
+
+            if fallback is None:
+                for cand in topk_actions:
+                    if cand in {"StrafeLeft", "StrafeRight"}:
+                        fallback = cand
+                        break
+
+            if fallback is not None:
+                action = fallback
+
+    if phase == "reacq":
+        if action == "Advance":
+            if search_hint == "left":
+                action = "SearchTurnLeft"
+            elif search_hint == "right":
+                action = "SearchTurnRight"
+            else:
+                action = "SearchTurnLeft"
+
+    if phase == "patrol":
+        if action in {"Advance", "SearchTurnLeft", "SearchTurnRight"}:
+            if search_hint == "left":
+                action = "PatrolStepLeft"
+            elif search_hint == "right":
+                action = "PatrolStepRight"
+            else:
+                action = "PatrolStepLeft"
 
     if action in {"StrafeRight", "StrafeLeft"} and same_action_streak > 3:
         fallback = None
@@ -100,7 +170,7 @@ def apply_action_with_state(pol_state, proposed_action, topk_actions, frame_id_e
                         fire_frame = frame_id_end + RT_FRAMES
                         pol_state["last_action"] = cand
                         pol_state["last_action_at_frame"] = frame_id_end
-                        pol_state["hold_until_frame"] = frame_id_end
+                        pol_state["hold_until_frame"] = frame_id_end  + MIN_HOLD_FRAMES
                         return cand, pol_state, fire_frame
 
                 for cand in topk_actions:
@@ -108,7 +178,7 @@ def apply_action_with_state(pol_state, proposed_action, topk_actions, frame_id_e
                         fire_frame = frame_id_end + RT_FRAMES
                         pol_state["last_action"] = cand
                         pol_state["last_action_at_frame"] = frame_id_end
-                        pol_state["hold_until_frame"] = frame_id_end
+                        pol_state["hold_until_frame"] = frame_id_end  + MIN_HOLD_FRAMES
                         return cand, pol_state, fire_frame
 
                 return "Hold", pol_state, None
@@ -120,7 +190,7 @@ def apply_action_with_state(pol_state, proposed_action, topk_actions, frame_id_e
                         fire_frame = frame_id_end + RT_FRAMES
                         pol_state["last_action"] = cand
                         pol_state["last_action_at_frame"] = frame_id_end
-                        pol_state["hold_until_frame"] = frame_id_end
+                        pol_state["hold_until_frame"] = frame_id_end + MIN_HOLD_FRAMES
                         return cand, pol_state, fire_frame
 
                 return "Hold", pol_state, None
@@ -138,7 +208,7 @@ def apply_action_with_state(pol_state, proposed_action, topk_actions, frame_id_e
         pol_state["last_action_at_frame"] = frame_id_end
         pol_state["hold_until_frame"] = fire_frame + MIN_HOLD_FRAMES
     else:
-        pol_state["hold_until_frame"] = frame_id_end
+        pol_state["hold_until_frame"] = frame_id_end + MIN_HOLD_FRAMES
     pol_state["hold_streak"] = hold_streak
     pol_state["last_non_hold_action"] = last_non_hold_action
 
