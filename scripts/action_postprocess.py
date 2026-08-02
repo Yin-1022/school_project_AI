@@ -28,6 +28,11 @@ def apply_action_with_state(pol_state, proposed_action, topk_actions, frame_id_e
     pred_name = info.get("pred_name", "none")
     lost_visible_streak = info.get("lost_visible_streak", 0)
 
+    if proposed_action == "Hold":
+        hold_streak += 1
+    else:
+        hold_streak = 0
+
     if visible == 0 and phase == "track":
         last_chase_action = last_action if last_action in {"Advance", "StrafeLeft", "StrafeRight"} else None
 
@@ -173,10 +178,7 @@ def apply_action_with_state(pol_state, proposed_action, topk_actions, frame_id_e
     if action in {"PatrolStepLeft", "PatrolStepRight"} and not is_ready(pol_state, "PatrolStep", frame_id_end):
         action = last_action if frame_id_end < hold_until_frame else "Hold"
 
-    if action == "Hold":
-        hold_streak = 1
-    else:
-        hold_streak = 0
+    if action != "Hold":
         last_non_hold_action = action
 
     if action == "Hold" and hold_streak > 2:
