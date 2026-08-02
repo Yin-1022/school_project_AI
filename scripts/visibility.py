@@ -14,8 +14,12 @@ def update(state, frames, pred_name, visible, frame_id_end):
     now_ms = (frame_id_end + 1) * ms_per_frame
     search_hint = None
 
-    mg = motionGate(frames, pred_name, visible)
-    motion, stop, pred_name, visible = mg["motion"], mg["stop"], mg["pred_name"], mg["visible"]
+    mg = motionGate(frames)
+    motion = mg["motion"]
+    stop = mg["stop"]
+
+    # visible 完全保留 stream_infer 傳入的 Presence 結果
+    visible = int(visible)
 
     if visible == 1:
         lost_visible_streak = 0
@@ -36,9 +40,8 @@ def update(state, frames, pred_name, visible, frame_id_end):
         invisible_acc_ms += delta_t_ms
         search_hint = last_seen_dir
 
-        if lost_visible_streak < 2:
+        if lost_visible_streak < 3:
             phase = "track"
-            # 注意：這裡不要再把 visible 改回 1
         else:
             if (now_ms - last_visible_ts_ms) <= REACQ_GRACE_MS:
                 phase = "reacq"
@@ -82,7 +85,7 @@ def stateInit():
     return state
     
 
-def motionGate(frames, pred_name, visible, gate=0.006):
+def motionGate(frames, gate=0.006):
     T = frames.shape[2]
 
     total_motion = 0.0
@@ -97,15 +100,17 @@ def motionGate(frames, pred_name, visible, gate=0.006):
 
     motion = (total_motion / (T - 1)).item()                     # 8 幀 → 7 個差分的平均
     stop   = 1 if motion < gate else 0
-    visible_before = visible
 
-    if stop == 1:
-        pred_name = "none"
-        visible   = 0
+    print(
+        f"[motion] motion={motion:.5f} "
+        f"gate={gate} stop={stop}"
+    )
 
-    print(f"[motion-gate] pred={pred_name} motion={motion:.5f} gate={gate} stop={stop} input_visible={visible_before}")
-    return {"motion": motion, "stop": stop, "pred_name": pred_name, "visible": visible}
-
+    return {
+        "motion": motion,
+        "stop": stop,
+    }
+    
 def estiDirections(frames, kappa=0.07, eps=1e-8):
     frames = frames.squeeze(0) # B,C,T,H,W → C,T,H,W
     T = frames.shape[1]

@@ -25,6 +25,22 @@ def apply_action_with_state(pol_state, proposed_action, topk_actions, frame_id_e
     visible = info.get("visible", 0)
     phase = info.get("phase", "patrol")
     search_hint = info.get("search_hint", None)
+    pred_name = info.get("pred_name", "none")
+    lost_visible_streak = info.get("lost_visible_streak", 0)
+
+    if visible == 0 and phase == "track":
+        last_chase_action = last_action if last_action in {"Advance", "StrafeLeft", "StrafeRight"} else None
+
+        # grace window：短暫延續上一個追擊動作，但不要採納新的 Advance proposal
+        if last_chase_action is not None and lost_visible_streak <= 2:
+            action = last_chase_action
+        else:
+            if search_hint == "left":
+                action = "SearchTurnLeft"
+            elif search_hint == "right":
+                action = "SearchTurnRight"
+            else:
+                action = "Hold"
 
     if visible == 1 and phase == "track":
         if action in {"SearchTurnLeft", "SearchTurnRight", "PatrolStepLeft", "PatrolStepRight"}:
@@ -34,7 +50,39 @@ def apply_action_with_state(pol_state, proposed_action, topk_actions, frame_id_e
                 action = "StrafeRight"
             else:
                 action = "Advance"
-    
+        if action in {"EvadeBack", "Retreat"} and pred_name not in {"attack", "roll"}:
+            fallback = None
+
+            # 先優先找橫移
+            for cand in topk_actions:
+                if cand in {"StrafeLeft", "StrafeRight"}:
+                    fallback = cand
+                    break
+
+            # 再找 Advance
+            if fallback is None:
+                for cand in topk_actions:
+                    if cand == "Advance":
+                        fallback = cand
+                        break
+
+            # 最後真的沒得選才保留原 action
+            if fallback is not None:
+                action = fallback
+
+    # track 階段不允許 SearchTurn
+    if (
+        visible == 1
+        and phase == "track"
+        and action in {"SearchTurnLeft", "SearchTurnRight"}
+    ):
+        if search_hint == "left":
+            action = "StrafeLeft"
+        elif search_hint == "right":
+            action = "StrafeRight"
+        else:
+            action = "Advance"
+
     if visible == 1 and phase == "track":
         if action == "Retreat" and same_action_streak > 2:
             fallback = None
@@ -82,16 +130,28 @@ def apply_action_with_state(pol_state, proposed_action, topk_actions, frame_id_e
             elif search_hint == "right":
                 action = "SearchTurnRight"
             else:
-                action = "SearchTurnLeft"
+                action = "Hold"
 
     if phase == "patrol":
         if action in {"Advance", "SearchTurnLeft", "SearchTurnRight"}:
-            if search_hint == "left":
-                action = "PatrolStepLeft"
-            elif search_hint == "right":
+            if search_hint == "right":
                 action = "PatrolStepRight"
             else:
                 action = "PatrolStepLeft"
+        elif action == "Hold" and hold_streak > 2:
+            if search_hint == "left":
+                action = "PatrolStepLeft"
+
+            elif search_hint == "right":
+                action = "PatrolStepRight"
+
+            else:
+                if last_non_hold_action == "PatrolStepLeft":
+                    action = "PatrolStepRight"
+                else:
+                    action = "PatrolStepLeft"
+
+            hold_streak = 0
 
     if action in {"StrafeRight", "StrafeLeft"} and same_action_streak > 3:
         fallback = None
@@ -114,10 +174,7 @@ def apply_action_with_state(pol_state, proposed_action, topk_actions, frame_id_e
         action = last_action if frame_id_end < hold_until_frame else "Hold"
 
     if action == "Hold":
-        if last_action == "Hold":
-            hold_streak += 1
-        else:
-            hold_streak = 1
+        hold_streak = 1
     else:
         hold_streak = 0
         last_non_hold_action = action

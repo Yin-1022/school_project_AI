@@ -44,6 +44,15 @@ ACTION_ID_TO_NAME: dict[int, str] = {
     9: "PatrolStepRight",
 }
 
+BLOCKING_ACTIONS = {
+    "EvadeBack",
+    "SearchTurnLeft",
+    "SearchTurnRight",
+    "Retreat",
+    "PatrolStepLeft",
+    "PatrolStepRight",
+}
+
 obs_features = {
     "frames": {
         "shape": (3, 8, 192, 192),

@@ -3,11 +3,16 @@ from pathlib import Path
 import collections
 import torch
 import numpy as np
+from presence_data import save_presence_sample
 from visibility import update as vis_update
 from policy import init_state as policy_init, step as rule_policy_step
 from stream_io import send_action, receive_from_ue, tcp_frame_stream
 from observation_builder import build_frame_tensor, build_extra_tensor, ACTION_NAME_TO_ID
-from policy_inference import load_model, infer_action
+from policy_inference import load_model, infer_action, load_action_cls_model, infer_player_state, CLASS_TO_ID
+from presence_inference import (
+    load_presence_model,
+    infer_player_presence,
+)
 from action_postprocess import apply_action_with_state
 from rollout_logger import append_rollout_step, flush_rollout_buffer, compute_shaping_reward, append_last_step
 import threading
@@ -16,11 +21,14 @@ from constant import (
     ACTION_ID_TO_NAME,
     ROLLOUT_SAVE_EVERY,
     POLICY_MODE,
+    BLOCKING_ACTIONS
 )
 
 # RAW_DIR = Path("data/raw_videos")
 # video_path = RAW_DIR / "raw_video_4_t.mp4"
 WEIGHTS_PATH = Path("data/meta/best_teacher_policy.pt")
+ACTION_CLS_WEIGHTS_PATH = Path("data/meta/best_action_cls.pt")
+PRESENCE_WEIGHTS_PATH = Path("data/meta/best_presence_avgmax_balanced_hardP.pt")
 CLIP_FRAMES     = 8          # 每個 clip 的影格數
 CLIP_STRIDE     = 4          # 滑窗步長
 TARGET_FPS      = 12
@@ -35,10 +43,13 @@ UE_EVENT_STATE = {
     "episode_done_flag": False,
 }
 UE_EVENT_LOCK = threading.Lock()
+PRESENCE_RECORD_MODE = True
+PRESENCE_VIDEO_DIR = Path("data/presence_videos")
 
 def main():
     rollout_buffer = []
     last_step_cache = None
+    video_writer = None
     
     try:
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -46,15 +57,23 @@ def main():
         if POLICY_MODE == "bc":
             model = load_model(str(WEIGHTS_PATH), device=device)
         receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE)
+        action_cls_model = load_action_cls_model(str(ACTION_CLS_WEIGHTS_PATH), device=device)
+
+        presence_model = load_presence_model(
+            str(PRESENCE_WEIGHTS_PATH),
+            device=device,
+        )
+        presence_state = init_presence_state()
 
         vis_state = None                    
         pol_state = policy_init() 
 
         frame_ring_buffer = collections.deque(maxlen=CLIP_FRAMES)
-        idx = 0
         pushed_frames = 0
         recv_frames = 0
         sample_every = 1
+        action_lock_until_frame = -1
+        locked_action = None
         global SEQ
 
         for frame in tcp_frame_stream(host='127.0.0.1', port=9999, img_w=192, img_h=192, img_c=3, debug_show=False):
@@ -86,7 +105,9 @@ def main():
                 if rollout_buffer:
                     flush_rollout_buffer(rollout_buffer)
 
-                continue
+                print("[stream] disconnected, closing recorder")
+                break
+                #continue
             
             recv_frames += 1
 
@@ -94,6 +115,35 @@ def main():
                 continue
 
             frame = cv2.resize(frame, FRAME_SIZE, interpolation=cv2.INTER_AREA)
+            
+            if PRESENCE_RECORD_MODE:
+                if video_writer is None:
+                    PRESENCE_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+
+                    timestamp = int(time.time())
+                    video_path = (
+                        PRESENCE_VIDEO_DIR
+                        / f"presence_raw_{timestamp}.mp4"
+                    )
+
+                    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+
+                    video_writer = cv2.VideoWriter(
+                        str(video_path),
+                        fourcc,
+                        TARGET_FPS,
+                        FRAME_SIZE,
+                    )
+
+                    if not video_writer.isOpened():
+                        raise RuntimeError(
+                            f"Failed to open video writer: {video_path}"
+                        )
+
+                    print(f"[presence-record] started: {video_path}")
+
+                video_writer.write(frame)
+            
             frame_ring_buffer.append(frame)
             pushed_frames += 1
 
@@ -105,11 +155,41 @@ def main():
             frame_id_end = pushed_frames - 1
             frames = build_frame_tensor(frame_ring_buffer)
 
+            presence_prob = infer_player_presence(
+                frames=frames,
+                model=presence_model,
+            )
+
+            presence_raw = int(presence_prob >= 0.60)
+
+            presence_stable = update_presence_state(
+                state=presence_state,
+                probability=presence_prob,
+                enter_threshold=0.60,
+                exit_threshold=0.45,
+                enter_required=2,
+                exit_required=3,
+            )
+
+            pred_out = infer_player_state(frames, action_cls_model)
+            raw_pred_name = pred_out["pred_name"]
+            pred_conf = pred_out["conf"]
+            pred_topk_ids = pred_out["topk_ids"][0]
+            pred_topk_probs = pred_out["topk_probs"][0]
+            pred_topk_names = [pred_out["pred_name"]]  # 先下面再補更完整 mapping
+            none_id = CLASS_TO_ID["none"]
+            none_prob = pred_out["probs"][0, none_id].item()
+
+            if presence_stable == 1:
+                pred_name = raw_pred_name
+            else:
+                pred_name = "none"
+
             info, vis_state = vis_update(
                 vis_state,
                 frames,
-                pred_name="idle",
-                visible=1,
+                pred_name=pred_name,
+                visible=presence_stable,
                 frame_id_end=frame_id_end,
             )
 
@@ -139,6 +219,29 @@ def main():
                 print("[UE event] player hit")
             if ue_episode_done:
                 print("[UE event] episode done")
+            if ue_attack_active:
+                print(f"[decision freeze] attack_active=1 at t={frame_id_end:05d}, skip new inference")
+                continue
+            if frame_id_end <= action_lock_until_frame:
+                print(
+                    f"[action freeze] "
+                    f"action={locked_action} "
+                    f"t={frame_id_end:05d} "
+                    f"until={action_lock_until_frame}, "
+                    f"skip policy inference and sending"
+                )
+                continue
+
+            # 已超過鎖定時間，解除鎖定
+            if locked_action is not None:
+                print(
+                    f"[action freeze ended] "
+                    f"action={locked_action} "
+                    f"at t={frame_id_end:05d}"
+                )
+
+                locked_action = None
+                action_lock_until_frame = -1
 
             if POLICY_MODE == "bc":
                 bc_out = infer_action(frames, extra_tensor, model)
@@ -243,12 +346,23 @@ def main():
 
             print(
                 f"[t={frame_id_end:05d}] "
-                f"vis={info['visible']} phase={info['phase']} "
-                f"hint={info['search_hint']} motion={info['motion']:.4f} "
+                f"presence={presence_prob:.2f} "
+                f"raw={presence_raw} "
+                f"stable={presence_stable} "
+                f"streak=({presence_state['present_streak']},"
+                f"{presence_state['absent_streak']}) "
+                f"| raw_pred={raw_pred_name}({pred_conf:.2f}) "
+                f"effective_pred={pred_name} "
+                f"none_prob={none_prob:.2f} "
+                f"visible={info['visible']} "
+                f"phase={info['phase']} "
+                f"hint={info['search_hint']} "
+                f"motion={info['motion']:.4f} "
                 f"→ bc_action={proposed_action}({action_conf:.2f}) "
-                f"final_action={action} fire@{fire_frame} hold_until={pol_state['hold_until_frame']}"
-                f" topk={list(zip(topk_actions, topk_confs))}"
-                # f"value={state_value:.4f}"
+                f"final_action={action} "
+                f"fire@{fire_frame} "
+                f"hold_until={pol_state['hold_until_frame']} "
+                f"topk={list(zip(topk_actions, topk_confs))}"
             )
 
             if fire_frame is None:
@@ -271,10 +385,85 @@ def main():
             }
 
             send_action(jsonMsg)
+
+            if (
+                action in BLOCKING_ACTIONS
+                and fire_frame is not None
+                and pol_state["hold_until_frame"] is not None
+            ):
+                locked_action = action
+                action_lock_until_frame = int(
+                    pol_state["hold_until_frame"]
+                )
+
+                print(
+                    f"[action freeze started] "
+                    f"action={locked_action} "
+                    f"fire_frame={fire_frame} "
+                    f"until={action_lock_until_frame}"
+                )
     finally:
-         if rollout_buffer:
+        if video_writer is not None:
+            video_writer.release()
+            print("[presence-record] video saved")
+
+        cv2.destroyAllWindows()
+
+        if rollout_buffer:
             flush_rollout_buffer(rollout_buffer)
             print("[rollout] flushed remaining buffer on shutdown")
+
+def init_presence_state() -> dict:
+    return {
+        "visible": 0,
+        "present_streak": 0,
+        "absent_streak": 0,
+    }
+
+
+def update_presence_state(
+    state: dict,
+    probability: float,
+    enter_threshold: float = 0.60,
+    exit_threshold: float = 0.25,
+    enter_required: int = 2,
+    exit_required: int = 2,
+) -> int:
+    """
+    raw present:
+      probability >= 0.60
+
+    raw absent:
+      probability < 0.25
+
+    0.25~0.60:
+      模糊區域，暫時維持原 visible
+    """
+
+    if probability >= enter_threshold:
+        state["present_streak"] += 1
+        state["absent_streak"] = 0
+
+    elif probability < exit_threshold:
+        state["absent_streak"] += 1
+        state["present_streak"] = 0
+
+    else:
+        # 落在 hysteresis 中間區，不切換狀態
+        state["present_streak"] = 0
+        state["absent_streak"] = 0
+
+    if state["visible"] == 0:
+        if state["present_streak"] >= enter_required:
+            state["visible"] = 1
+            state["present_streak"] = 0
+
+    else:
+        if state["absent_streak"] >= exit_required:
+            state["visible"] = 0
+            state["absent_streak"] = 0
+
+    return state["visible"]
 
 def derive_rule_pred_name(info):
     if info["visible"] == 0:
