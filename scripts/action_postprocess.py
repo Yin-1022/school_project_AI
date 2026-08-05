@@ -1,4 +1,4 @@
-from constant import SAME_ACTION_REFIRE_FRAMES, RT_FRAMES, MIN_HOLD_FRAMES, CD_EVADE, CD_TURN, CD_PATROL
+from constant import SAME_ACTION_REFIRE_FRAMES, RT_FRAMES, MIN_HOLD_FRAMES, CD_EVADE, CD_TURN, CD_PATROL, MAX_SEARCH_TURNS
 from policy import is_ready, arm_cooldown
 
 def apply_action_with_state(pol_state, proposed_action, topk_actions, frame_id_end, info):
@@ -8,6 +8,8 @@ def apply_action_with_state(pol_state, proposed_action, topk_actions, frame_id_e
     same_action_streak = pol_state.get("same_action_streak", 0)
     hold_streak = pol_state.get("hold_streak", 0)
     last_non_hold_action = pol_state.get("last_non_hold_action", "Hold")
+    search_turn_count = pol_state.get("search_turn_count", 0)
+    last_patrol_action = pol_state.get("last_patrol_action", None)
 
     if frame_id_end < hold_until_frame:
         if last_action != "Hold":
@@ -28,10 +30,9 @@ def apply_action_with_state(pol_state, proposed_action, topk_actions, frame_id_e
     pred_name = info.get("pred_name", "none")
     lost_visible_streak = info.get("lost_visible_streak", 0)
 
-    if proposed_action == "Hold":
-        hold_streak += 1
-    else:
-        hold_streak = 0
+    if visible == 1:
+        search_turn_count = 0
+        pol_state["search_turn_count"] = 0
 
     if visible == 0 and phase == "track":
         last_chase_action = last_action if last_action in {"Advance", "StrafeLeft", "StrafeRight"} else None
@@ -129,21 +130,34 @@ def apply_action_with_state(pol_state, proposed_action, topk_actions, frame_id_e
                 action = fallback
 
     if phase == "reacq":
-        if action == "Advance":
+        if search_turn_count < MAX_SEARCH_TURNS:
             if search_hint == "left":
                 action = "SearchTurnLeft"
-            elif search_hint == "right":
-                action = "SearchTurnRight"
             else:
-                action = "Hold"
-
-    if phase == "patrol":
-        if action in {"Advance", "SearchTurnLeft", "SearchTurnRight"}:
-            if search_hint == "right":
+                action = "SearchTurnRight"
+        else:
+            if search_hint == "left":
+                action = "PatrolStepLeft"
+            elif search_hint == "right":
                 action = "PatrolStepRight"
             else:
-                action = "PatrolStepLeft"
-        elif action == "Hold" and hold_streak > 2:
+                action = (
+                    "PatrolStepRight"
+                    if last_patrol_action == "PatrolStepLeft"
+                    else "PatrolStepLeft"
+                )
+
+    if phase == "patrol":
+        # 尚未完成max次 SearchTurn：忽略 BC proposal，強制繼續搜尋
+        if search_turn_count < MAX_SEARCH_TURNS:
+            if search_hint == "left":
+                action = "SearchTurnLeft"
+            else:
+                # center 或 right 時固定往右，避免左右來回抵銷
+                action = "SearchTurnRight"
+
+        # 已完成八次 SearchTurn，才允許 PatrolStep
+        else:
             if search_hint == "left":
                 action = "PatrolStepLeft"
 
@@ -151,12 +165,11 @@ def apply_action_with_state(pol_state, proposed_action, topk_actions, frame_id_e
                 action = "PatrolStepRight"
 
             else:
-                if last_non_hold_action == "PatrolStepLeft":
+                # 沒有方向提示時左右交替
+                if last_patrol_action == "PatrolStepLeft":
                     action = "PatrolStepRight"
                 else:
                     action = "PatrolStepLeft"
-
-            hold_streak = 0
 
     if action in {"StrafeRight", "StrafeLeft"} and same_action_streak > 3:
         fallback = None
@@ -178,16 +191,27 @@ def apply_action_with_state(pol_state, proposed_action, topk_actions, frame_id_e
     if action in {"PatrolStepLeft", "PatrolStepRight"} and not is_ready(pol_state, "PatrolStep", frame_id_end):
         action = last_action if frame_id_end < hold_until_frame else "Hold"
 
-    if action != "Hold":
+    if action == "Hold":
+        hold_streak += 1
+    else:
+        hold_streak = 0
         last_non_hold_action = action
 
-    if action == "Hold" and hold_streak > 2:
+    if (
+        action == "Hold"
+        and hold_streak > 2
+        and phase == "track"
+    ):
         fallback = None
+
         for cand in topk_actions:
-            if cand != "Hold" and cand != last_non_hold_action:
+            if (
+                cand != "Hold"
+                and cand != last_non_hold_action
+            ):
                 fallback = cand
                 break
-        
+
         if fallback is None:
             for cand in topk_actions:
                 if cand != "Hold":
@@ -222,37 +246,16 @@ def apply_action_with_state(pol_state, proposed_action, topk_actions, frame_id_e
                         return continued_action, pol_state, fire_frame
                     return continued_action, pol_state, None
 
-            # 2) reacq：優先 SearchTurn，其次 PatrolStep
-            if phase == "reacq":
-                for cand in topk_actions:
-                    if cand in {"SearchTurnLeft", "SearchTurnRight"}:
-                        fire_frame = frame_id_end + RT_FRAMES
-                        pol_state["last_action"] = cand
-                        pol_state["last_action_at_frame"] = frame_id_end
-                        pol_state["hold_until_frame"] = frame_id_end  + MIN_HOLD_FRAMES
-                        return cand, pol_state, fire_frame
+    if action == "Hold":
+        pol_state["hold_streak"] = hold_streak
+        pol_state["last_non_hold_action"] = (
+            last_non_hold_action
+        )
 
-                for cand in topk_actions:
-                    if cand in {"PatrolStepLeft", "PatrolStepRight"}:
-                        fire_frame = frame_id_end + RT_FRAMES
-                        pol_state["last_action"] = cand
-                        pol_state["last_action_at_frame"] = frame_id_end
-                        pol_state["hold_until_frame"] = frame_id_end  + MIN_HOLD_FRAMES
-                        return cand, pol_state, fire_frame
+        if frame_id_end >= hold_until_frame:
+            pol_state["hold_until_frame"] = frame_id_end
 
-                return "Hold", pol_state, None
-
-            # 3) patrol：優先 PatrolStep，不要沿用 Advance
-            if phase == "patrol":
-                for cand in topk_actions:
-                    if cand in {"PatrolStepLeft", "PatrolStepRight"}:
-                        fire_frame = frame_id_end + RT_FRAMES
-                        pol_state["last_action"] = cand
-                        pol_state["last_action_at_frame"] = frame_id_end
-                        pol_state["hold_until_frame"] = frame_id_end + MIN_HOLD_FRAMES
-                        return cand, pol_state, fire_frame
-
-                return "Hold", pol_state, None
+        return "Hold", pol_state, None
 
     if action == last_action:
         last_fire_at = pol_state.get("last_action_at_frame", -1)
@@ -262,12 +265,24 @@ def apply_action_with_state(pol_state, proposed_action, topk_actions, frame_id_e
             return action, pol_state, None
 
     fire_frame = frame_id_end + RT_FRAMES
-    if action != "Hold":
-        pol_state["last_action"] = action
-        pol_state["last_action_at_frame"] = frame_id_end
-        pol_state["hold_until_frame"] = fire_frame + MIN_HOLD_FRAMES
-    else:
-        pol_state["hold_until_frame"] = frame_id_end + MIN_HOLD_FRAMES
+
+    pol_state["last_action"] = action
+    pol_state["last_action_at_frame"] = frame_id_end
+    pol_state["hold_until_frame"] = (
+        fire_frame + MIN_HOLD_FRAMES
+    )
+
+    if action in {"SearchTurnLeft", "SearchTurnRight"}:
+        search_turn_count += 1
+        pol_state["search_turn_count"] = search_turn_count
+
+    elif action in {"PatrolStepLeft", "PatrolStepRight"}:
+        pol_state["last_patrol_action"] = action
+
+        # PatrolStep 完成一次後，下一輪重新搜尋八次
+        search_turn_count = 0
+        pol_state["search_turn_count"] = 0
+
     pol_state["hold_streak"] = hold_streak
     pol_state["last_non_hold_action"] = last_non_hold_action
 

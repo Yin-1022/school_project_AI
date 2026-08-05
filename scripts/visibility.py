@@ -81,6 +81,8 @@ def stateInit():
         "dir_candidate": "center",
         "dir_hysteresis_cnt": 0,
         "lost_visible_streak": 0,
+        "search_turn_count": 0,
+        "patrol_step_count": 0,
     }
     return state
     
