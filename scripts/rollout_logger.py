@@ -163,11 +163,6 @@ def compute_shaping_reward(
         elif final_action in {"Advance", "StrafeLeft", "StrafeRight"}:
             low_reward += 0.1
 
-    # 4) track + Advance/StrafeLeft/StrafeRight 給小正分
-    if visible == 1 and phase == "track":
-        if final_action in {"Advance", "StrafeLeft", "StrafeRight"}:
-            low_reward += 0.1
-
     # 4) reacq 時做 SearchTurn 給小正分
     if phase == "reacq":
         if final_action in {"SearchTurnLeft", "SearchTurnRight"}:
@@ -183,59 +178,3 @@ def compute_shaping_reward(
         "medium_reward": np.float32(medium_reward),
         "low_reward": np.float32(low_reward)
     }
-
-# def compute_shaping_reward(
-#         info, final_action, 
-#         ue_attack_active, ue_attack_start,
-#         ue_boss_hit, ue_player_hit,
-#         ue_episode_done
-#     ):
-#     reward = 0.0
-
-#     visible = info.get("visible", 0)
-#     phase = info.get("phase", "patrol")
-
-#     # 1) 玩家攻擊起手時，Boss 做 evasive 給較大正分
-#     if ue_attack_start:
-#         if final_action in {"EvadeBack", "Retreat"}:
-#             reward += 1.0
-#         else:
-#             reward -= 0.2
-
-#     # 2) 玩家持續攻擊時，Boss 若仍維持 evasive 類行為，給小正分
-#     if ue_attack_active:
-#         if final_action in {"EvadeBack", "Retreat"}:
-#             reward += 0.2
-
-#     # 3) track 時不要一直 Hold
-#     if visible == 1 and phase == "track":
-#         if final_action == "Hold":
-#             reward -= 0.1
-#         elif final_action in {"Advance", "StrafeLeft", "StrafeRight"}:
-#             reward += 0.1
-
-#     # 4) reacq 時做 SearchTurn 給小正分
-#     if phase == "reacq":
-#         if final_action in {"SearchTurnLeft", "SearchTurnRight"}:
-#             reward += 0.1
-
-#     # 5) patrol 時做 PatrolStep 給小正分
-#     if phase == "patrol":
-#         if final_action in {"PatrolStepLeft", "PatrolStepRight"}:
-#             reward += 0.05
-    
-#     # 6) Boss 被玩家打中：負分
-#     if ue_boss_hit:
-#         reward -= 1.0
-
-#     # 7) 玩家被 Boss 打中：正分
-#     if ue_player_hit:
-#         reward += 1.0
-
-#     # 8) 回合結束：先給一個小終局 shaping
-#     # 目前沒有勝負資訊，所以先只做輕微處理
-#     if ue_episode_done:
-#         reward += 0.0
-#         print("happend")
-
-#     return np.float32(reward)
