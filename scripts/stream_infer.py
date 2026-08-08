@@ -235,6 +235,21 @@ def main():
                 print("[UE event] player hit")
             if ue_episode_done:
                 print("[UE event] episode done")
+                if last_step_cache is not None:
+                    append_cached_step(
+                        rollout_buffer,
+                        last_step_cache,
+                        done=1,
+                    )
+                    last_step_cache = None
+
+                flush_rollout_buffer(rollout_buffer)
+
+                with UE_EVENT_LOCK:
+                    UE_EVENT_STATE["episode_done_flag"] = False
+
+                continue
+
             if ue_attack_active:
                 print(f"[decision freeze] attack_active=1 at t={frame_id_end:05d}, skip new inference")
                 continue
@@ -259,21 +274,13 @@ def main():
                 locked_action = None
                 action_lock_until_frame = -1
 
-            if ue_episode_done:
-                if last_step_cache is not None:
-                    append_cached_step(
-                        rollout_buffer,
-                        last_step_cache,
-                        done=1,
-                    )
-                    last_step_cache = None
-
-                flush_rollout_buffer(rollout_buffer)
-
-                with UE_EVENT_LOCK:
-                    UE_EVENT_STATE["episode_done_flag"] = False
-
-                continue
+            if last_step_cache is not None:
+                append_cached_step(
+                    rollout_buffer,
+                    last_step_cache,
+                    done=0,
+                )
+                last_step_cache = None
 
             if POLICY_MODE == "bc":
                 bc_out = infer_action(frames, extra_tensor, model)
@@ -322,15 +329,6 @@ def main():
                     info=info
                 )
 
-            reward_channels = compute_reward_channels(
-                info=info,
-                final_action=action,
-                ue_attack_active=False,
-                ue_attack_start=False,
-                ue_boss_hit=False,
-                ue_player_hit=False,
-                ue_episode_done=False,
-            )
             done = 1 if ue_episode_done else 0
 
             last_step_cache = {
@@ -350,8 +348,8 @@ def main():
 
                 "ue_attack_start": False,
                 "ue_attack_end": False,
-                "ue_boss_hit": False,
-                "ue_player_hit": False,
+                "ue_boss_hit_count": 0,
+                "ue_player_hit_count": 0,
                 "ue_episode_done": False,
             }
 

@@ -3,7 +3,7 @@ import numpy as np
 from observation_builder import ACTION_NAME_TO_ID
 from constant import ROLLOUT_DIR
 
-def append_rollout_step(buffer, frames, extra, logits, prob, 
+def append_rollout_step(buffer, frames, extra, logits, probs, 
                         proposed_action, final_action, info, 
                         pol_state, frame_id_end, fire_frame,
                         ue_attack_active, ue_attack_start, ue_attack_end, 
@@ -13,7 +13,7 @@ def append_rollout_step(buffer, frames, extra, logits, prob,
         "frames": frames.squeeze(0).detach().cpu().numpy(),   # shape (C,T,H,W)
         "extra": extra.squeeze(0).detach().cpu().numpy(),     # shape (24,)
         "logits": logits.squeeze(0).detach().cpu().numpy(),   # shape
-        "probs": prob.squeeze(0).detach().cpu().numpy(),       # shape (num_actions,)
+        "probs": probs.squeeze(0).detach().cpu().numpy(),     # shape (num_actions,)
         "proposed_action_id": np.int64(ACTION_NAME_TO_ID[proposed_action]),
         "final_action_id": np.int64(ACTION_NAME_TO_ID[final_action]),
         "frame_id_end": np.int64(frame_id_end),
@@ -97,8 +97,7 @@ def append_last_step(
 
 def compute_reward_channels(
         info,final_action,
-        ue_attack_active,ue_attack_start,
-        ue_boss_hit_count, ue_player_hit_count,
+        ue_attack_start, ue_boss_hit_count, ue_player_hit_count,
     ):
 
     high_reward = 0.0
