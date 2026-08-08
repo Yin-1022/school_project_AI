@@ -7,7 +7,7 @@ def append_rollout_step(buffer, frames, extra, logits, probs,
                         proposed_action, final_action, info, 
                         pol_state, frame_id_end, fire_frame,
                         ue_attack_start, ue_attack_end, 
-                        ue_boss_hit, ue_player_hit, ue_episode_done,
+                        ue_boss_hit_count, ue_player_hit_count, ue_episode_done,
                         reward_high, reward_medium, reward_low, done):
     step = {
         "frames": frames.squeeze(0).detach().cpu().numpy(),   # shape (C,T,H,W)
@@ -29,8 +29,8 @@ def append_rollout_step(buffer, frames, extra, logits, probs,
         "done": np.int64(done),
         "ue_attack_start": np.int64(1 if ue_attack_start else 0),
         "ue_attack_end": np.int64(1 if ue_attack_end else 0),
-        "ue_boss_hit": np.int64(1 if ue_boss_hit else 0),
-        "ue_player_hit": np.int64(1 if ue_player_hit else 0),
+        "ue_boss_hit_count": np.int64(ue_boss_hit_count),
+        "ue_player_hit_count": np.int64(ue_player_hit_count),
         "ue_episode_done": np.int64(1 if ue_episode_done else 0),
         # "value": np.float32(
         #         value.detach().cpu().item() if hasattr(value, "detach") else value
