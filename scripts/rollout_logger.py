@@ -8,7 +8,7 @@ def append_rollout_step(buffer, frames, extra, logits, prob,
                         pol_state, frame_id_end, fire_frame,
                         ue_attack_active, ue_attack_start, ue_attack_end, 
                         ue_boss_hit, ue_player_hit, ue_episode_done,
-                        reward, done):
+                        reward_high, reward_medium, reward_low, done):
     step = {
         "frames": frames.squeeze(0).detach().cpu().numpy(),   # shape (C,T,H,W)
         "extra": extra.squeeze(0).detach().cpu().numpy(),     # shape (24,)
@@ -23,7 +23,9 @@ def append_rollout_step(buffer, frames, extra, logits, prob,
         "phase": info["phase"],
         "search_hint": info["search_hint"] if info["search_hint"] is not None else "none",
         "motion": np.float32(info["motion"]),
-        "reward": np.float32(reward),
+        "reward_high": np.float32(reward_high),
+        "reward_medium": np.float32(reward_medium),
+        "reward_low": np.float32(reward_low),
         "done": np.int64(done),
         "ue_attack_active": np.int64(1 if ue_attack_active else 0),
         "ue_attack_start": np.int64(1 if ue_attack_start else 0),
@@ -119,59 +121,121 @@ def append_last_step(
     )
     return True
 
-
 def compute_shaping_reward(
-        info, final_action, 
-        ue_attack_active, ue_attack_start,
-        ue_boss_hit, ue_player_hit,
-        ue_episode_done
+        info,final_action,
+        ue_attack_active,ue_attack_start,
+        ue_boss_hit,ue_player_hit,
+        ue_episode_done,
     ):
-    reward = 0.0
 
+    high_reward = 0.0
+    medium_reward = 0.0
+    low_reward = 0.0
+
+    #High level shaping reward
+
+    #Medium level shaping reward
+    if ue_player_hit:
+        medium_reward += 1.0
+    if ue_boss_hit:
+        medium_reward -= 1.0
+
+    #Low level shaping reward
     visible = info.get("visible", 0)
     phase = info.get("phase", "patrol")
 
     # 1) 玩家攻擊起手時，Boss 做 evasive 給較大正分
     if ue_attack_start:
         if final_action in {"EvadeBack", "Retreat"}:
-            reward += 1.0
+            low_reward += 1.0
         else:
-            reward -= 0.2
+            low_reward -= 0.2
 
     # 2) 玩家持續攻擊時，Boss 若仍維持 evasive 類行為，給小正分
     if ue_attack_active:
         if final_action in {"EvadeBack", "Retreat"}:
-            reward += 0.2
+            low_reward += 0.2
 
     # 3) track 時不要一直 Hold
     if visible == 1 and phase == "track":
         if final_action == "Hold":
-            reward -= 0.1
+            low_reward -= 0.1
         elif final_action in {"Advance", "StrafeLeft", "StrafeRight"}:
-            reward += 0.1
+            low_reward += 0.1
+
+    # 4) track + Advance/StrafeLeft/StrafeRight 給小正分
+    if visible == 1 and phase == "track":
+        if final_action in {"Advance", "StrafeLeft", "StrafeRight"}:
+            low_reward += 0.1
 
     # 4) reacq 時做 SearchTurn 給小正分
     if phase == "reacq":
         if final_action in {"SearchTurnLeft", "SearchTurnRight"}:
-            reward += 0.1
+            low_reward += 0.1
 
     # 5) patrol 時做 PatrolStep 給小正分
     if phase == "patrol":
         if final_action in {"PatrolStepLeft", "PatrolStepRight"}:
-            reward += 0.05
+            low_reward += 0.05
+
+    return {
+        "high_reward": np.float32(high_reward),
+        "medium_reward": np.float32(medium_reward),
+        "low_reward": np.float32(low_reward)
+    }
+
+# def compute_shaping_reward(
+#         info, final_action, 
+#         ue_attack_active, ue_attack_start,
+#         ue_boss_hit, ue_player_hit,
+#         ue_episode_done
+#     ):
+#     reward = 0.0
+
+#     visible = info.get("visible", 0)
+#     phase = info.get("phase", "patrol")
+
+#     # 1) 玩家攻擊起手時，Boss 做 evasive 給較大正分
+#     if ue_attack_start:
+#         if final_action in {"EvadeBack", "Retreat"}:
+#             reward += 1.0
+#         else:
+#             reward -= 0.2
+
+#     # 2) 玩家持續攻擊時，Boss 若仍維持 evasive 類行為，給小正分
+#     if ue_attack_active:
+#         if final_action in {"EvadeBack", "Retreat"}:
+#             reward += 0.2
+
+#     # 3) track 時不要一直 Hold
+#     if visible == 1 and phase == "track":
+#         if final_action == "Hold":
+#             reward -= 0.1
+#         elif final_action in {"Advance", "StrafeLeft", "StrafeRight"}:
+#             reward += 0.1
+
+#     # 4) reacq 時做 SearchTurn 給小正分
+#     if phase == "reacq":
+#         if final_action in {"SearchTurnLeft", "SearchTurnRight"}:
+#             reward += 0.1
+
+#     # 5) patrol 時做 PatrolStep 給小正分
+#     if phase == "patrol":
+#         if final_action in {"PatrolStepLeft", "PatrolStepRight"}:
+#             reward += 0.05
     
-    # 6) Boss 被玩家打中：負分
-    if ue_boss_hit:
-        reward -= 1.0
+#     # 6) Boss 被玩家打中：負分
+#     if ue_boss_hit:
+#         reward -= 1.0
 
-    # 7) 玩家被 Boss 打中：正分
-    if ue_player_hit:
-        reward += 1.0
+#     # 7) 玩家被 Boss 打中：正分
+#     if ue_player_hit:
+#         reward += 1.0
 
-    # 8) 回合結束：先給一個小終局 shaping
-    # 目前沒有勝負資訊，所以先只做輕微處理
-    if ue_episode_done:
-        reward += 0.0
-        print("happend")
+#     # 8) 回合結束：先給一個小終局 shaping
+#     # 目前沒有勝負資訊，所以先只做輕微處理
+#     if ue_episode_done:
+#         reward += 0.0
+#         print("happend")
 
-    return np.float32(reward)
+#     return np.float32(reward)

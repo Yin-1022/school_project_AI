@@ -2,3 +2,12 @@ data/clips
 data/raw_videos
 a.py
 .venv
+check_rollout.py
+data/presence_errors/
+data/presence_videos/
+data/presence_samples/
+data/rollouts/
+scripts/__pycache__/
+scripts/tempCodeRunnerFile.py
+sendandreceiveosc.py
+tempCodeRunnerFile.py
