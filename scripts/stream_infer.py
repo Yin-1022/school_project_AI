@@ -43,7 +43,7 @@ UE_EVENT_STATE = {
     "episode_done_flag": False,
 }
 UE_EVENT_LOCK = threading.Lock()
-PRESENCE_RECORD_MODE = True
+PRESENCE_RECORD_MODE = False
 PRESENCE_VIDEO_DIR = Path("data/presence_videos")
 
 def main():

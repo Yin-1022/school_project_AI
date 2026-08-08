@@ -28,7 +28,7 @@ POLICY_MODE = "bc"
 
 ROLLOUT_SAVE_EVERY = 1000
 if POLICY_MODE == "bc":
-    ROLLOUT_DIR = Path("data/rollouts/rollouts_bc")
+    ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
 else:
     ROLLOUT_DIR = Path("data/rollouts/rollouts_rule")
 

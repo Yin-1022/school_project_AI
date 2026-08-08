@@ -46,36 +46,39 @@ def flush_rollout_buffer(buffer):
     out_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = int(time.time() * 1000)
-    out_path = out_dir / f"rollout_{timestamp}.npz"
+    out_path = out_dir / f"rollout_v2_{timestamp}.npz"
 
-    # np.savez(
-    #     out_path,
-    #     frames=np.stack([x["frames"] for x in buffer], axis=0),                  # (N,3,8,192,192)
-    #     extra=np.stack([x["extra"] for x in buffer], axis=0),                    # (N,24)
-    #     logits=np.stack([x["logits"] for x in buffer], axis=0),                  # (N,10)
-    #     probs=np.stack([x["probs"] for x in buffer], axis=0),                    # (N,10)
-    #     proposed_action_id=np.asarray([x["proposed_action_id"] for x in buffer]),
-    #     final_action_id=np.asarray([x["final_action_id"] for x in buffer]),
-    #     frame_id_end=np.asarray([x["frame_id_end"] for x in buffer]),
-    #     fire_frame=np.asarray([x["fire_frame"] for x in buffer]),
-    #     hold_until_frame=np.asarray([x["hold_until_frame"] for x in buffer]),
-    #     visible=np.asarray([x["visible"] for x in buffer]),
-    #     phase=np.asarray([x["phase"] for x in buffer]),
-    #     search_hint=np.asarray([x["search_hint"] for x in buffer]),
-    #     motion=np.asarray([x["motion"] for x in buffer], dtype=np.float32),
-    #     reward=np.asarray([x["reward"] for x in buffer], dtype=np.float32),
-    #     done=np.asarray([x["done"] for x in buffer], dtype=np.int64),
-    #     ue_attack_active=np.asarray([x["ue_attack_active"] for x in buffer], dtype=np.int64),
-    #     ue_attack_start=np.asarray([x["ue_attack_start"] for x in buffer], dtype=np.int64),
-    #     ue_attack_end=np.asarray([x["ue_attack_end"] for x in buffer], dtype=np.int64),
-    #     ue_boss_hit=np.asarray([x["ue_boss_hit"] for x in buffer], dtype=np.int64),
-    #     ue_player_hit=np.asarray([x["ue_player_hit"] for x in buffer], dtype=np.int64),
-    #     ue_episode_done=np.asarray([x["ue_episode_done"] for x in buffer], dtype=np.int64),
-    #     # value=np.asarray([x["value"] for x in buffer], dtype=np.float32),
-    # )
+    np.savez(
+        out_path,
 
-    # print(f"[rollout] saved {len(buffer)} steps -> {out_path}")
-    # buffer.clear()
+        frames=np.stack([x["frames"] for x in buffer],axis=0),
+        extra=np.stack([x["extra"] for x in buffer],axis=0),
+        logits=np.stack([x["logits"] for x in buffer],axis=0),
+        probs=np.stack([x["probs"] for x in buffer],axis=0),
+        proposed_action_id=np.asarray([x["proposed_action_id"] for x in buffer]),
+        final_action_id=np.asarray([x["final_action_id"] for x in buffer]),
+        frame_id_end=np.asarray([x["frame_id_end"] for x in buffer]),
+        fire_frame=np.asarray([x["fire_frame"] for x in buffer]),
+        hold_until_frame=np.asarray([x["hold_until_frame"] for x in buffer]),
+        visible=np.asarray([x["visible"] for x in buffer]),
+        phase=np.asarray([x["phase"] for x in buffer]),
+        search_hint=np.asarray([x["search_hint"] for x in buffer]),
+        motion=np.asarray([x["motion"] for x in buffer],dtype=np.float32),
+
+        reward_high=np.asarray([x["reward_high"] for x in buffer],dtype=np.float32),
+        reward_medium=np.asarray([x["reward_medium"] for x in buffer],dtype=np.float32),
+        reward_low=np.asarray([x["reward_low"] for x in buffer],dtype=np.float32),
+
+        done=np.asarray([x["done"] for x in buffer],dtype=np.int64),
+        ue_attack_start=np.asarray([x["ue_attack_start"] for x in buffer],dtype=np.int64),
+        ue_attack_end=np.asarray([x["ue_attack_end"] for x in buffer],dtype=np.int64),
+        ue_boss_hit_count=np.asarray([x["ue_boss_hit_count"] for x in buffer],dtype=np.int64),
+        ue_player_hit_count=np.asarray([x["ue_player_hit_count"] for x in buffer],dtype=np.int64),
+        ue_episode_done=np.asarray([x["ue_episode_done"] for x in buffer],dtype=np.int64),
+    )
+
+    print(f"[rollout] saved {len(buffer)} steps -> {out_path}")
+    buffer.clear()
 
 def append_last_step(
     rollout_buffer,
@@ -153,7 +156,7 @@ def append_cached_step(rollout_buffer, cache, done=0):
     )
 
     append_rollout_step(
-        rollout_buffer=rollout_buffer,
+        buffer=rollout_buffer,
         frames=cache["frames"],
         extra=cache["extra"],
         logits=cache["logits"],
@@ -167,8 +170,8 @@ def append_cached_step(rollout_buffer, cache, done=0):
 
         ue_attack_start=cache["ue_attack_start"],
         ue_attack_end=cache["ue_attack_end"],
-        ue_boss_hit=cache["ue_boss_hit_count"] > 0,
-        ue_player_hit=cache["ue_player_hit_count"] > 0,
+        ue_boss_hit_count=cache["ue_boss_hit_count"] > 0,
+        ue_player_hit_count=cache["ue_player_hit_count"] > 0,
         ue_episode_done=cache["ue_episode_done"],
 
         reward_high=rewards["high_reward"],
