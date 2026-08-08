@@ -35,9 +35,14 @@ TARGET_FPS      = 12
 FRAME_SIZE      = (192, 192)
 SEQ = 0
 UE_EVENT_STATE = {
-    "attack_active": False,
-    "attack_start_pulse": False,
-    "attack_end_pulse": False,
+    "att1_active": False,
+    "att1_start_pulse": False,
+    "att1_end_pulse": False,
+
+    "att2_active": False,
+    "att2_start_pulse": False,
+    "att2_end_pulse": False,
+
     "boss_hit_pulse": False,
     "player_hit_pulse": False,
     "episode_done_flag": False,
@@ -196,16 +201,23 @@ def main():
             extra_tensor = build_extra_tensor(info, pol_state, frame_id_end)
 
             with UE_EVENT_LOCK:
-                ue_attack_active = UE_EVENT_STATE["attack_active"]
-                ue_attack_start = UE_EVENT_STATE["attack_start_pulse"]
-                ue_attack_end = UE_EVENT_STATE["attack_end_pulse"]
+                ue_att1_active = UE_EVENT_STATE["att1_active"]
+                ue_att1_start = UE_EVENT_STATE["att1_start_pulse"]
+                ue_att1_end = UE_EVENT_STATE["att1_end_pulse"]
+
+                ue_att2_active = UE_EVENT_STATE["att2_active"]
+                ue_att2_start = UE_EVENT_STATE["att2_start_pulse"]
+                ue_att2_end = UE_EVENT_STATE["att2_end_pulse"]
+
                 ue_boss_hit = UE_EVENT_STATE["boss_hit_pulse"]
                 ue_player_hit = UE_EVENT_STATE["player_hit_pulse"]
                 ue_episode_done = UE_EVENT_STATE["episode_done_flag"]
 
                 # pulse 讀完就清掉
-                UE_EVENT_STATE["attack_start_pulse"] = False
-                UE_EVENT_STATE["attack_end_pulse"] = False
+                UE_EVENT_STATE["att1_start_pulse"] = False
+                UE_EVENT_STATE["att1_end_pulse"] = False
+                UE_EVENT_STATE["att2_start_pulse"] = False
+                UE_EVENT_STATE["att2_end_pulse"] = False
                 UE_EVENT_STATE["boss_hit_pulse"] = False
                 UE_EVENT_STATE["player_hit_pulse"] = False
 
@@ -216,19 +228,27 @@ def main():
                 if ue_boss_hit:
                     last_step_cache["ue_boss_hit_count"] += 1
 
-                if ue_attack_start:
-                    last_step_cache["ue_attack_start"] = True
+                if ue_att1_start:
+                    last_step_cache["ue_att1_start"] = True
+                if ue_att1_end:
+                    last_step_cache["ue_att1_end"] = True
 
-                if ue_attack_end:
-                    last_step_cache["ue_attack_end"] = True
+                if ue_att2_start:
+                    last_step_cache["ue_att2_start"] = True
+                if ue_att2_end:
+                    last_step_cache["ue_att2_end"] = True
 
                 if ue_episode_done:
                     last_step_cache["ue_episode_done"] = True
             
-            if ue_attack_start:
-                print("[UE event] attack start")
-            if ue_attack_end:
-                print("[UE event] attack end")
+            if ue_att1_start:
+                print("[UE event] boss normal attack start")
+            if ue_att1_end:
+                print("[UE event] boss normal attack end")
+            if ue_att2_start:
+                print("[UE event] boss skill attack1 start")
+            if ue_att2_end:
+                print("[UE event] boss skill attack1 end")
             if ue_boss_hit:
                 print("[UE event] boss hit")
             if ue_player_hit:
@@ -250,7 +270,7 @@ def main():
 
                 continue
 
-            if ue_attack_active:
+            if ue_att1_active or ue_att2_active:
                 print(f"[decision freeze] attack_active=1 at t={frame_id_end:05d}, skip new inference")
                 continue
             if frame_id_end <= action_lock_until_frame:
@@ -344,8 +364,10 @@ def main():
                 "frame_id_end": frame_id_end,
                 "fire_frame": fire_frame,
 
-                "ue_attack_start": False,
-                "ue_attack_end": False,
+                "ue_att1_start": False,
+                "ue_att1_end": False,
+                "ue_att2_start": False,
+                "ue_att2_end": False,
                 "ue_boss_hit_count": 0,
                 "ue_player_hit_count": 0,
                 "ue_episode_done": False,

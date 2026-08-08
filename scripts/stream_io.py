@@ -8,17 +8,29 @@ import cv2
 _OSC_CLIENT = None
 
 def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE):
-    def on_attack_start(address, *args):
+    def on_att1_start(address, *args):
         with UE_EVENT_LOCK:
-            UE_EVENT_STATE["attack_active"] = True
-            UE_EVENT_STATE["attack_start_pulse"] = True
-        print(f"[← UE] 開始攻擊！args: {args}\n")
+            UE_EVENT_STATE["att1_active"] = True
+            UE_EVENT_STATE["att1_start_pulse"] = True
+        print(f"[← UE] Boss普攻開始！args: {args}\n")
 
-    def on_attack_end(address, *args):
+    def on_att1_end(address, *args):
         with UE_EVENT_LOCK:
-            UE_EVENT_STATE["attack_active"] = False
-            UE_EVENT_STATE["attack_end_pulse"] = True
-        print(f"[← UE] 結束攻擊！args: {args}\n")
+            UE_EVENT_STATE["att1_active"] = False
+            UE_EVENT_STATE["att1_end_pulse"] = True
+        print(f"[← UE] Boss普攻結束！args: {args}\n")
+
+    def on_att2_start(address, *args):
+        with UE_EVENT_LOCK:
+            UE_EVENT_STATE["att2_active"] = True
+            UE_EVENT_STATE["att2_start_pulse"] = True
+        print(f"[← UE] Boss技能1開始！args: {args}\n")
+
+    def on_att2_end(address, *args):
+        with UE_EVENT_LOCK:
+            UE_EVENT_STATE["att2_active"] = False
+            UE_EVENT_STATE["att2_end_pulse"] = True
+        print(f"[← UE] Boss技能1結束！args: {args}\n")
 
     def on_fallback(address, *args):
         print(f"[← UE] 未知訊息 {address}，args: {args}\n")
@@ -40,8 +52,10 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE):
         print(f"[← UE] 回合結束！args: {args}\n")
 
     dp = dispatcher.Dispatcher()
-    dp.map("/attatart", on_attack_start)
-    dp.map("/attend",   on_attack_end)
+    dp.map("/att1start", on_att1_start)
+    dp.map("/att1end", on_att1_end)
+    dp.map("/att2start", on_att2_start)
+    dp.map("/att2end", on_att2_end)
     dp.map("/enemy_take_damage", on_boss_hit)
     dp.map("/player_health", on_health_changed)
     dp.map("/game_over", on_episode_done)

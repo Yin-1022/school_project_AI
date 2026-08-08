@@ -6,7 +6,8 @@ from constant import ROLLOUT_DIR
 def append_rollout_step(buffer, frames, extra, logits, probs, 
                         proposed_action, final_action, info, 
                         pol_state, frame_id_end, fire_frame,
-                        ue_attack_start, ue_attack_end, 
+                        ue_att1_start, ue_att1_end,
+                        ue_att2_start, ue_att2_end,
                         ue_boss_hit_count, ue_player_hit_count, ue_episode_done,
                         reward_high, reward_medium, reward_low, done):
     step = {
@@ -27,8 +28,10 @@ def append_rollout_step(buffer, frames, extra, logits, probs,
         "reward_medium": np.float32(reward_medium),
         "reward_low": np.float32(reward_low),
         "done": np.int64(done),
-        "ue_attack_start": np.int64(1 if ue_attack_start else 0),
-        "ue_attack_end": np.int64(1 if ue_attack_end else 0),
+        "ue_att1_start": np.int64(1 if ue_att1_start else 0),
+        "ue_att1_end": np.int64(1 if ue_att1_end else 0),
+        "ue_att2_start": np.int64(1 if ue_att2_start else 0),
+        "ue_att2_end": np.int64(1 if ue_att2_end else 0),
         "ue_boss_hit_count": np.int64(ue_boss_hit_count),
         "ue_player_hit_count": np.int64(ue_player_hit_count),
         "ue_episode_done": np.int64(1 if ue_episode_done else 0),
@@ -70,8 +73,10 @@ def flush_rollout_buffer(buffer):
         reward_low=np.asarray([x["reward_low"] for x in buffer],dtype=np.float32),
 
         done=np.asarray([x["done"] for x in buffer],dtype=np.int64),
-        ue_attack_start=np.asarray([x["ue_attack_start"] for x in buffer],dtype=np.int64),
-        ue_attack_end=np.asarray([x["ue_attack_end"] for x in buffer],dtype=np.int64),
+        ue_att1_start=np.asarray([x["ue_att1_start"] for x in buffer],dtype=np.int64),
+        ue_att1_end=np.asarray([x["ue_att1_end"] for x in buffer],dtype=np.int64),
+        ue_att2_start=np.asarray([x["ue_att2_start"] for x in buffer],dtype=np.int64),
+        ue_att2_end=np.asarray([x["ue_att2_end"] for x in buffer],dtype=np.int64),
         ue_boss_hit_count=np.asarray([x["ue_boss_hit_count"] for x in buffer],dtype=np.int64),
         ue_player_hit_count=np.asarray([x["ue_player_hit_count"] for x in buffer],dtype=np.int64),
         ue_episode_done=np.asarray([x["ue_episode_done"] for x in buffer],dtype=np.int64),
@@ -99,7 +104,8 @@ def append_last_step(
 
 def compute_reward_channels(
         info,final_action,
-        ue_attack_start, ue_boss_hit_count, ue_player_hit_count,
+        ue_att1_start, ue_att1_end, ue_att2_start, ue_att2_end,
+        ue_boss_hit_count, ue_player_hit_count,
     ):
 
     high_reward = 0.0
@@ -116,9 +122,9 @@ def compute_reward_channels(
     visible = info.get("visible", 0)
     phase = info.get("phase", "patrol")
 
-    # 1) 玩家攻擊起手時，Boss 做 evasive 給較大正分
-    if ue_attack_start and final_action in {"EvadeBack", "Retreat"}:
-            low_reward += 1.0
+    # # 1) 玩家攻擊起手時，Boss 做 evasive 給較大正分
+    # if ue_attack_start and final_action in {"EvadeBack", "Retreat"}:
+    #         low_reward += 1.0
 
     # 2) track 時不要一直 Hold
     if visible == 1 and phase == "track":
@@ -150,7 +156,10 @@ def append_cached_step(rollout_buffer, cache, done=0):
     rewards = compute_reward_channels(
         info=cache["info"],
         final_action=cache["final_action"],
-        ue_attack_start=cache["ue_attack_start"],
+        ue_att1_start=cache["ue_att1_start"],
+        ue_att1_end=cache["ue_att1_end"],
+        ue_att2_start=cache["ue_att2_start"],
+        ue_att2_end=cache["ue_att2_end"],
         ue_boss_hit_count=cache["ue_boss_hit_count"],
         ue_player_hit_count=cache["ue_player_hit_count"],
     )
@@ -168,10 +177,12 @@ def append_cached_step(rollout_buffer, cache, done=0):
         frame_id_end=cache["frame_id_end"],
         fire_frame=cache["fire_frame"],
 
-        ue_attack_start=cache["ue_attack_start"],
-        ue_attack_end=cache["ue_attack_end"],
-        ue_boss_hit_count=cache["ue_boss_hit_count"] > 0,
-        ue_player_hit_count=cache["ue_player_hit_count"] > 0,
+        ue_att1_start=cache["ue_att1_start"],
+        ue_att1_end=cache["ue_att1_end"],
+        ue_att2_start=cache["ue_att2_start"],
+        ue_att2_end=cache["ue_att2_end"],
+        ue_boss_hit_count=cache["ue_boss_hit_count"],
+        ue_player_hit_count=cache["ue_player_hit_count"],
         ue_episode_done=cache["ue_episode_done"],
 
         reward_high=rewards["high_reward"],
