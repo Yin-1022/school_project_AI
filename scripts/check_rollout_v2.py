@@ -1,7 +1,14 @@
 import numpy as np
 from pathlib import Path
+from reward_priority import resolve_priority_reward
 
 ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
+PRIORITY_NAMES = {
+    0: "NONE",
+    1: "LOW",
+    2: "MED",
+    3: "HIGH",
+}
     
 def main() -> None:
     files = sorted(
@@ -60,6 +67,20 @@ def main() -> None:
     print("-" * len(header))
 
     for i in range(total_steps):
+        resolved = resolve_priority_reward(
+            reward_high=float(data["reward_high"][i]),
+            reward_medium=float(data["reward_medium"][i]),
+            reward_low=float(data["reward_low"][i]),
+            ue_player_hit_count=int(
+                data["ue_player_hit_count"][i]
+            ),
+            ue_boss_hit_count=int(
+                data["ue_boss_hit_count"][i]
+            ),
+        )
+        priority = PRIORITY_NAMES[resolved["priority"]]
+        selected_reward = resolved["reward"]
+
         print(
             f"{i:>4} "
             f"{int(data['frame_id_end'][i]):>6} "
@@ -76,6 +97,8 @@ def main() -> None:
             f"{int(data['ue_player_hit_count'][i]):>5} "
             f"{int(data['ue_boss_hit_count'][i]):>5} "
             f"{int(data['done'][i]):>4}"
+            f"{priority:>4} "
+            f"{selected_reward:>8.2f}"
         )
 
     print("\n===== Reward Consistency Check =====")
