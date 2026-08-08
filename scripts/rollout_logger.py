@@ -178,3 +178,36 @@ def compute_shaping_reward(
         "medium_reward": np.float32(medium_reward),
         "low_reward": np.float32(low_reward)
     }
+
+def append_cached_step(rollout_buffer, cache, done=0):
+    if cache is None:
+        return False
+
+    append_rollout_step(
+        rollout_buffer,
+        cache["frames"],
+        cache["extra"],
+        cache["logits"],
+        cache["probs"],
+        cache["proposed_action"],
+        cache["final_action"],
+        cache["info"],
+        cache["pol_state"],
+        cache["frame_id_end"],
+        cache["fire_frame"],
+
+        False,
+        cache["ue_attack_start"],
+        cache["ue_attack_end"],
+        cache["ue_boss_hit"],
+        cache["ue_player_hit"],
+        cache["ue_episode_done"],
+
+        cache["reward_high"],
+        cache["reward_medium"],
+        cache["reward_low"],
+
+        done,
+    )
+
+    return True

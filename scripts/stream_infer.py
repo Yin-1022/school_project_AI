@@ -14,7 +14,7 @@ from presence_inference import (
     infer_player_presence,
 )
 from action_postprocess import apply_action_with_state
-from rollout_logger import append_rollout_step, flush_rollout_buffer, compute_shaping_reward, append_last_step
+from rollout_logger import append_cached_step, append_rollout_step, flush_rollout_buffer, compute_shaping_reward, append_last_step
 import threading
 import time
 from constant import (
@@ -208,6 +208,24 @@ def main():
                 UE_EVENT_STATE["attack_end_pulse"] = False
                 UE_EVENT_STATE["boss_hit_pulse"] = False
                 UE_EVENT_STATE["player_hit_pulse"] = False
+
+            if last_step_cache is not None:
+                if ue_player_hit:
+                    last_step_cache["reward_medium"] += 1.0
+                    last_step_cache["ue_player_hit"] = True
+
+                if ue_boss_hit:
+                    last_step_cache["reward_medium"] -= 1.0
+                    last_step_cache["ue_boss_hit"] = True
+
+                if ue_attack_start:
+                    last_step_cache["ue_attack_start"] = True
+
+                if ue_attack_end:
+                    last_step_cache["ue_attack_end"] = True
+
+                if ue_episode_done:
+                    last_step_cache["ue_episode_done"] = True
             
             if ue_attack_start:
                 print("[UE event] attack start")
@@ -242,6 +260,15 @@ def main():
 
                 locked_action = None
                 action_lock_until_frame = -1
+
+            if last_step_cache is not None:
+                append_cached_step(
+                    rollout_buffer,
+                    last_step_cache,
+                    done=0,
+                )
+
+                last_step_cache = None
 
             if POLICY_MODE == "bc":
                 bc_out = infer_action(frames, extra_tensor, model)
@@ -290,14 +317,14 @@ def main():
                     info=info
                 )
 
-            reward = compute_shaping_reward(
+            reward_channels = compute_shaping_reward(
                 info=info,
                 final_action=action,
-                ue_attack_active=ue_attack_active,
-                ue_attack_start=ue_attack_start,
-                ue_boss_hit=ue_boss_hit,
-                ue_player_hit=ue_player_hit,
-                ue_episode_done=ue_episode_done,
+                ue_attack_active=False,
+                ue_attack_start=False,
+                ue_boss_hit=False,
+                ue_player_hit=False,
+                ue_episode_done=False,
             )
             done = 1 if ue_episode_done else 0
 
@@ -312,30 +339,16 @@ def main():
                 "pol_state": dict(pol_state),
                 "frame_id_end": frame_id_end,
                 "fire_frame": fire_frame,
-            }
+                "reward_high": 0.0,
+                "reward_medium": 0.0,
+                "reward_low": float(reward_channels["low_reward"]),
 
-            append_rollout_step(
-                rollout_buffer,
-                frames,
-                extra_tensor,
-                logits_for_log,
-                probs_for_log,
-                proposed_action,
-                action,
-                info,
-                pol_state,
-                frame_id_end,
-                fire_frame,
-                ue_attack_active,
-                ue_attack_start,
-                ue_attack_end,
-                ue_boss_hit,
-                ue_player_hit,
-                ue_episode_done,
-                reward,
-                done,
-                # state_value,
-            )
+                "ue_attack_start": False,
+                "ue_attack_end": False,
+                "ue_boss_hit": False,
+                "ue_player_hit": False,
+                "ue_episode_done": False,
+            }
 
             if len(rollout_buffer) >= ROLLOUT_SAVE_EVERY or ue_episode_done:
                 flush_rollout_buffer(rollout_buffer)
