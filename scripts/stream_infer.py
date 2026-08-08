@@ -14,7 +14,7 @@ from presence_inference import (
     infer_player_presence,
 )
 from action_postprocess import apply_action_with_state
-from rollout_logger import append_cached_step, append_rollout_step, flush_rollout_buffer, compute_shaping_reward, append_last_step
+from rollout_logger import append_cached_step, append_rollout_step, flush_rollout_buffer, compute_reward_channels, append_last_step
 import threading
 import time
 from constant import (
@@ -211,12 +211,10 @@ def main():
 
             if last_step_cache is not None:
                 if ue_player_hit:
-                    last_step_cache["reward_medium"] += 1.0
-                    last_step_cache["ue_player_hit"] = True
+                    last_step_cache["ue_player_hit_count"] += 1
 
                 if ue_boss_hit:
-                    last_step_cache["reward_medium"] -= 1.0
-                    last_step_cache["ue_boss_hit"] = True
+                    last_step_cache["ue_boss_hit_count"] += 1
 
                 if ue_attack_start:
                     last_step_cache["ue_attack_start"] = True
@@ -261,14 +259,21 @@ def main():
                 locked_action = None
                 action_lock_until_frame = -1
 
-            if last_step_cache is not None:
-                append_cached_step(
-                    rollout_buffer,
-                    last_step_cache,
-                    done=0,
-                )
+            if ue_episode_done:
+                if last_step_cache is not None:
+                    append_cached_step(
+                        rollout_buffer,
+                        last_step_cache,
+                        done=1,
+                    )
+                    last_step_cache = None
 
-                last_step_cache = None
+                flush_rollout_buffer(rollout_buffer)
+
+                with UE_EVENT_LOCK:
+                    UE_EVENT_STATE["episode_done_flag"] = False
+
+                continue
 
             if POLICY_MODE == "bc":
                 bc_out = infer_action(frames, extra_tensor, model)
@@ -317,7 +322,7 @@ def main():
                     info=info
                 )
 
-            reward_channels = compute_shaping_reward(
+            reward_channels = compute_reward_channels(
                 info=info,
                 final_action=action,
                 ue_attack_active=False,
@@ -333,15 +338,15 @@ def main():
                 "extra": extra_tensor,
                 "logits": logits_for_log,
                 "probs": probs_for_log,
+
                 "proposed_action": proposed_action,
                 "final_action": action,
+
                 "info": info,
                 "pol_state": dict(pol_state),
+
                 "frame_id_end": frame_id_end,
                 "fire_frame": fire_frame,
-                "reward_high": 0.0,
-                "reward_medium": 0.0,
-                "reward_low": float(reward_channels["low_reward"]),
 
                 "ue_attack_start": False,
                 "ue_attack_end": False,

@@ -85,47 +85,20 @@ def append_last_step(
     if last_step_cache is None:
         return False
 
-    info = last_step_cache["info"]
-    final_action = last_step_cache["final_action"]
+    last_step_cache["ue_episode_done"] = True
 
-    terminal_reward = compute_shaping_reward(
-        info=info,
-        final_action=final_action,
-        ue_attack_active=False,
-        ue_attack_start=False,
-        ue_boss_hit=False,
-        ue_player_hit=False,
-        ue_episode_done=True,
-    )
-
-    append_rollout_step(
+    append_cached_step(
         rollout_buffer,
-        last_step_cache["frames"],
-        last_step_cache["extra"],
-        last_step_cache["logits"],
-        last_step_cache["probs"],
-        last_step_cache["proposed_action"],
-        last_step_cache["final_action"],
-        last_step_cache["info"],
-        last_step_cache["pol_state"],
-        last_step_cache["frame_id_end"],
-        last_step_cache["fire_frame"],
-        False,   # ue_attack_active
-        False,   # ue_attack_start
-        False,   # ue_attack_end
-        False,   # ue_boss_hit
-        False,   # ue_player_hit
-        True,    # ue_episode_done
-        terminal_reward,
-        1,
+        last_step_cache,
+        done=1,
     )
+
     return True
 
-def compute_shaping_reward(
+def compute_reward_channels(
         info,final_action,
         ue_attack_active,ue_attack_start,
-        ue_boss_hit,ue_player_hit,
-        ue_episode_done,
+        ue_boss_hit_count, ue_player_hit_count,
     ):
 
     high_reward = 0.0
@@ -135,40 +108,30 @@ def compute_shaping_reward(
     #High level shaping reward
 
     #Medium level shaping reward
-    if ue_player_hit:
-        medium_reward += 1.0
-    if ue_boss_hit:
-        medium_reward -= 1.0
+    medium_reward += ue_player_hit_count * 1.0
+    medium_reward -= ue_boss_hit_count * 1.0
 
     #Low level shaping reward
     visible = info.get("visible", 0)
     phase = info.get("phase", "patrol")
 
     # 1) 玩家攻擊起手時，Boss 做 evasive 給較大正分
-    if ue_attack_start:
-        if final_action in {"EvadeBack", "Retreat"}:
+    if ue_attack_start and final_action in {"EvadeBack", "Retreat"}:
             low_reward += 1.0
-        else:
-            low_reward -= 0.2
 
-    # 2) 玩家持續攻擊時，Boss 若仍維持 evasive 類行為，給小正分
-    if ue_attack_active:
-        if final_action in {"EvadeBack", "Retreat"}:
-            low_reward += 0.2
-
-    # 3) track 時不要一直 Hold
+    # 2) track 時不要一直 Hold
     if visible == 1 and phase == "track":
         if final_action == "Hold":
             low_reward -= 0.1
         elif final_action in {"Advance", "StrafeLeft", "StrafeRight"}:
             low_reward += 0.1
 
-    # 4) reacq 時做 SearchTurn 給小正分
+    # 3) reacq 時做 SearchTurn 給小正分
     if phase == "reacq":
         if final_action in {"SearchTurnLeft", "SearchTurnRight"}:
             low_reward += 0.1
 
-    # 5) patrol 時做 PatrolStep 給小正分
+    # 4) patrol 時做 PatrolStep 給小正分
     if phase == "patrol":
         if final_action in {"PatrolStepLeft", "PatrolStepRight"}:
             low_reward += 0.05
@@ -183,31 +146,38 @@ def append_cached_step(rollout_buffer, cache, done=0):
     if cache is None:
         return False
 
+    rewards = compute_reward_channels(
+        info=cache["info"],
+        final_action=cache["final_action"],
+        ue_attack_start=cache["ue_attack_start"],
+        ue_boss_hit_count=cache["ue_boss_hit_count"],
+        ue_player_hit_count=cache["ue_player_hit_count"],
+    )
+
     append_rollout_step(
-        rollout_buffer,
-        cache["frames"],
-        cache["extra"],
-        cache["logits"],
-        cache["probs"],
-        cache["proposed_action"],
-        cache["final_action"],
-        cache["info"],
-        cache["pol_state"],
-        cache["frame_id_end"],
-        cache["fire_frame"],
+        rollout_buffer=rollout_buffer,
+        frames=cache["frames"],
+        extra=cache["extra"],
+        logits=cache["logits"],
+        probs=cache["probs"],
+        proposed_action=cache["proposed_action"],
+        final_action=cache["final_action"],
+        info=cache["info"],
+        pol_state=cache["pol_state"],
+        frame_id_end=cache["frame_id_end"],
+        fire_frame=cache["fire_frame"],
 
-        False,
-        cache["ue_attack_start"],
-        cache["ue_attack_end"],
-        cache["ue_boss_hit"],
-        cache["ue_player_hit"],
-        cache["ue_episode_done"],
+        ue_attack_start=cache["ue_attack_start"],
+        ue_attack_end=cache["ue_attack_end"],
+        ue_boss_hit=cache["ue_boss_hit_count"] > 0,
+        ue_player_hit=cache["ue_player_hit_count"] > 0,
+        ue_episode_done=cache["ue_episode_done"],
 
-        cache["reward_high"],
-        cache["reward_medium"],
-        cache["reward_low"],
+        reward_high=rewards["high_reward"],
+        reward_medium=rewards["medium_reward"],
+        reward_low=rewards["low_reward"],
 
-        done,
+        done=done,
     )
 
     return True
