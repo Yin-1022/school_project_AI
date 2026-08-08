@@ -6,7 +6,7 @@ from constant import ROLLOUT_DIR
 def append_rollout_step(buffer, frames, extra, logits, probs, 
                         proposed_action, final_action, info, 
                         pol_state, frame_id_end, fire_frame,
-                        ue_attack_active, ue_attack_start, ue_attack_end, 
+                        ue_attack_start, ue_attack_end, 
                         ue_boss_hit, ue_player_hit, ue_episode_done,
                         reward_high, reward_medium, reward_low, done):
     step = {
@@ -27,7 +27,6 @@ def append_rollout_step(buffer, frames, extra, logits, probs,
         "reward_medium": np.float32(reward_medium),
         "reward_low": np.float32(reward_low),
         "done": np.int64(done),
-        "ue_attack_active": np.int64(1 if ue_attack_active else 0),
         "ue_attack_start": np.int64(1 if ue_attack_start else 0),
         "ue_attack_end": np.int64(1 if ue_attack_end else 0),
         "ue_boss_hit": np.int64(1 if ue_boss_hit else 0),

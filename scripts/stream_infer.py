@@ -14,7 +14,7 @@ from presence_inference import (
     infer_player_presence,
 )
 from action_postprocess import apply_action_with_state
-from rollout_logger import append_cached_step, append_rollout_step, flush_rollout_buffer, compute_reward_channels, append_last_step
+from rollout_logger import append_cached_step, flush_rollout_buffer, append_last_step
 import threading
 import time
 from constant import (
@@ -329,8 +329,6 @@ def main():
                     info=info
                 )
 
-            done = 1 if ue_episode_done else 0
-
             last_step_cache = {
                 "frames": frames,
                 "extra": extra_tensor,
@@ -355,10 +353,6 @@ def main():
 
             if len(rollout_buffer) >= ROLLOUT_SAVE_EVERY or ue_episode_done:
                 flush_rollout_buffer(rollout_buffer)
-            
-            if ue_episode_done:
-                with UE_EVENT_LOCK:
-                    UE_EVENT_STATE["episode_done_flag"] = False
 
             print(
                 f"[t={frame_id_end:05d}] "
