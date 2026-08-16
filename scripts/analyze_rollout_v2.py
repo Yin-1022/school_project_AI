@@ -54,14 +54,13 @@ def priority_distribution(files_len, total_transitions, files):
 def selected_reward(files_len, files):
     low_counts = collections.Counter()
     medium_counts = collections.Counter()
+    low_sum = 0.0
+    medium_sum = 0.0
 
     for i in range(files_len):
         path = files[i]
         data = np.load(path,allow_pickle=False)
         total_steps = len(data["frame_id_end"])
-
-        low_sum = 0.0
-        medium_sum = 0.0
    
         for i in range(total_steps):
             resolved = resolve_priority_reward(
@@ -133,6 +132,11 @@ def attack_event_distribution(files_len, files):
 
 def action_distribution(files_len, files):
     action_counts = collections.Counter()
+    action_positive = collections.Counter()
+    action_zero = collections.Counter()
+    action_negative = collections.Counter()
+
+    action_reward_sum = collections.Counter()
 
     for i in range(files_len):
         path = files[i]
@@ -140,17 +144,42 @@ def action_distribution(files_len, files):
         total_steps = len(data["frame_id_end"])
 
         for j in range(total_steps):
-            action_counts[data["final_action_id"][j]] += 1
+            action_id = int(data["final_action_id"][j])
+            action_counts[action_id] += 1
+
+            resolved = resolve_priority_reward(
+                reward_high=float(data["reward_high"][j]),
+                reward_medium=float(data["reward_medium"][j]),
+                reward_low=float(data["reward_low"][j]),
+                ue_player_hit_count=int(data["ue_player_hit_count"][j]),
+                ue_boss_hit_count=int(data["ue_boss_hit_count"][j]),
+            )
+
+            selected_reward = resolved["reward"]
+
+            if selected_reward > 0:
+                action_positive[action_id] += 1
+            elif selected_reward == 0:
+                action_zero[action_id] += 1
+            else:
+                action_negative[action_id] += 1
+
+            action_reward_sum[action_id] += selected_reward
 
     print(f"===== Action Distribution =====\n"
           f"Action               N       %    Reward+    Reward0     Reward-     Mean selected reward")
     for action_id, count in action_counts.items():
         action_name = ACTION_ID_TO_NAME.get(action_id, f"Action {action_id}")
         action_percentage = count / sum(action_counts.values()) * 100
-        reward_positive = np.sum(data["reward_low"][data["final_action_id"] == action_id] > 0)
-        reward_zero = np.sum(data["reward_low"][data["final_action_id"] == action_id] == 0)
-        reward_negative = np.sum(data["reward_low"][data["final_action_id"] == action_id] < 0)
-        mean_selected_reward = np.mean(data["reward_low"][data["final_action_id"] == action_id]) if count > 0 else 0.0
+        reward_positive = action_positive[action_id]
+        reward_zero = action_zero[action_id]
+        reward_negative = action_negative[action_id]
+
+        mean_selected_reward = (
+            action_reward_sum[action_id] / count
+            if count > 0
+            else 0.0
+        )
 
         print(f"{action_name:<15} {count:>6} {action_percentage:>6.2f}% {reward_positive:>10} {reward_zero:>10} {reward_negative:>10} {mean_selected_reward:>15.2f}")
 
@@ -192,15 +221,20 @@ def proposeToFinalCount(files_len, files):
 def phase_distribution(files_len, files):
     phase_counts = collections.Counter()
     action_counts = collections.Counter()
+    phase_action_counts = collections.Counter()
 
     for i in range(files_len):
+
         path = files[i]
         data = np.load(path,allow_pickle=False)
         total_steps = len(data["frame_id_end"])
 
         for j in range(total_steps):
-            phase_counts[data["phase"][j]] += 1
-            action_counts[data["final_action_id"][j]] += 1
+            phase = str(data["phase"][j])
+            action_id = int(data["final_action_id"][j])
+
+            phase_counts[phase] += 1
+            phase_action_counts[(phase, action_id)] += 1
 
     phase_total = sum(phase_counts.values())
 
@@ -210,16 +244,77 @@ def phase_distribution(files_len, files):
           f"Patrol: {phase_counts['patrol']} ({phase_counts['patrol']/phase_total*100:.2f}%)\n")
 
     print(f"track\n"
-          f" Advance: {action_counts[1]}\n"
-          f" StrafeLeft: {action_counts[2]}\n"
-          f" StrafeRight: {action_counts[3]}\n"
-          f" Hold: {action_counts[0]}")
+          f" Advance: {phase_action_counts[('track', 1)]}\n"
+          f" StrafeLeft: {phase_action_counts[('track', 2)]}\n"
+          f" StrafeRight: {phase_action_counts[('track', 3)]}\n"
+          f" Hold: {phase_action_counts[('track', 0)]}")
     print(f"reacq\n"
-              f" SearchTurnLeft: {action_counts[6]}\n"
-              f" SearchTurnRight: {action_counts[7]}")
+          f" SearchTurnLeft: {phase_action_counts[('reacq', 6)]}\n"
+          f" SearchTurnRight: {phase_action_counts[('reacq', 7)]}")
     print(f"patrol\n"
-              f" PatrolStepLeft: {action_counts[8]}\n"
-              f" PatrolStepRight: {action_counts[9]}")
+          f" PatrolStepLeft: {phase_action_counts[('patrol', 8)]}\n"
+          f" PatrolStepRight: {phase_action_counts[('patrol', 9)]}")
+
+def sanity_check(files):
+    medium_mismatch = 0
+
+    att1_start = 0
+    att1_end = 0
+
+    att2_start = 0
+    att2_end = 0
+
+    for path in files:
+        data = np.load(path, allow_pickle=False)
+
+        total_steps = len(data["frame_id_end"])
+        att1_start += int(
+            np.sum(data["ue_att1_start"])
+        )
+    
+        att1_end += int(
+            np.sum(data["ue_att1_end"])
+        )
+
+        att2_start += int(
+            np.sum(data["ue_att2_start"])
+        )
+
+        att2_end += int(
+            np.sum(data["ue_att2_end"])
+        )
+
+        for j in range(total_steps):
+            expected_medium = (
+                int(data["ue_player_hit_count"][j])
+                - int(data["ue_boss_hit_count"][j])
+            )
+
+            actual_medium = float(
+                data["reward_medium"][j]
+            )
+
+            if not np.isclose(
+                expected_medium,
+                actual_medium,
+            ):
+                medium_mismatch += 1
+
+    print("\n===== Sanity Check =====")
+    print(
+        f"Medium reward mismatch: "
+        f"{medium_mismatch}"
+    )
+
+    print(
+        f"ATT1 start/end mismatch: "
+        f"{att1_start - att1_end}"
+    )
+
+    print(
+        f"ATT2 start/end mismatch: "
+        f"{att2_start - att2_end}"
+    )
 
 def main() -> None:
     files = sorted(
@@ -240,5 +335,6 @@ def main() -> None:
     action_distribution(files_len, files)
     proposeToFinalCount(files_len, files)
     phase_distribution(files_len, files)
+    sanity_check(files)
 if __name__ == "__main__":
     main()
