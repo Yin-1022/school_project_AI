@@ -88,8 +88,29 @@ def selected_reward(files_len, files):
                     medium_counts["zero"] += 1
                 medium_sum += float(data["reward_medium"][i])
 
-        low_counts_mean = low_sum / (low_counts["positive"] + low_counts["negative"] + low_counts["zero"])
-        medium_counts_mean = medium_sum / (medium_counts["positive"] + medium_counts["negative"] + medium_counts["zero"])
+    low_total = (
+        low_counts["positive"]
+        + low_counts["negative"]
+        + low_counts["zero"]
+    )
+
+    medium_total = (
+        medium_counts["positive"]
+        + medium_counts["negative"]
+        + medium_counts["zero"]
+    )
+
+    low_counts_mean = (
+        low_sum / low_total
+        if low_total > 0
+        else 0.0
+    )
+
+    medium_counts_mean = (
+        medium_sum / medium_total
+        if medium_total > 0
+        else 0.0
+    )
 
     print(f"===== Selected Reward =====\n"
         f"LOW:\n"
@@ -128,7 +149,7 @@ def attack_event_distribution(files_len, files):
         f"Attack 2 End: {attack_events['ue_att2_end']}\n"
         f"Player gets hit count: {attack_events['ue_player_hit_count']}\n"
         f"Boss gets hit count: {attack_events['ue_boss_hit_count']}\n"
-        f"Both get hit count: {attack_events['both_hit_count']}\n")
+        f"Transitions with both hit: {attack_events['both_hit_count']}\n")
 
 def action_distribution(files_len, files):
     action_counts = collections.Counter()
@@ -238,22 +259,19 @@ def phase_distribution(files_len, files):
 
     phase_total = sum(phase_counts.values())
 
-    print(f"\n===== Phase Distribution =====\n"
-          f"Track: {phase_counts['track']} ({phase_counts['track']/phase_total*100:.2f}%)\n"
-          f"Reacq: {phase_counts['reacq']} ({phase_counts['reacq']/phase_total*100:.2f}%)\n"
-          f"Patrol: {phase_counts['patrol']} ({phase_counts['patrol']/phase_total*100:.2f}%)\n")
+    for phase in ["track", "reacq", "patrol"]:
+        print(phase)
 
-    print(f"track\n"
-          f" Advance: {phase_action_counts[('track', 1)]}\n"
-          f" StrafeLeft: {phase_action_counts[('track', 2)]}\n"
-          f" StrafeRight: {phase_action_counts[('track', 3)]}\n"
-          f" Hold: {phase_action_counts[('track', 0)]}")
-    print(f"reacq\n"
-          f" SearchTurnLeft: {phase_action_counts[('reacq', 6)]}\n"
-          f" SearchTurnRight: {phase_action_counts[('reacq', 7)]}")
-    print(f"patrol\n"
-          f" PatrolStepLeft: {phase_action_counts[('patrol', 8)]}\n"
-          f" PatrolStepRight: {phase_action_counts[('patrol', 9)]}")
+        for (pair_phase, action_id), count in phase_action_counts.items():
+            if pair_phase != phase:
+                continue
+
+            action_name = ACTION_ID_TO_NAME.get(
+                action_id,
+                f"Action {action_id}",
+            )
+
+            print(f" {action_name}: {count}")
 
 def sanity_check(files):
     medium_mismatch = 0
