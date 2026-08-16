@@ -34,13 +34,13 @@ def priority_distribution(files_len, total_transitions, files):
         data = np.load(path,allow_pickle=False,)
         total_steps = len(data["frame_id_end"])
    
-        for i in range(total_steps):
+        for j in range(total_steps):
             resolved = resolve_priority_reward(
-                reward_high=float(data["reward_high"][i]),
-                reward_medium=float(data["reward_medium"][i]),
-                reward_low=float(data["reward_low"][i]),
-                ue_player_hit_count=int(data["ue_player_hit_count"][i]),
-                ue_boss_hit_count=int(data["ue_boss_hit_count"][i]),
+                reward_high=float(data["reward_high"][j]),
+                reward_medium=float(data["reward_medium"][j]),
+                reward_low=float(data["reward_low"][j]),
+                ue_player_hit_count=int(data["ue_player_hit_count"][j]),
+                ue_boss_hit_count=int(data["ue_boss_hit_count"][j]),
             )
             priority = resolved["priority"]
             priority_counts[priority] += 1
@@ -226,8 +226,8 @@ def proposeToFinalCount(files_len, files):
             else:
                 action_changing_counts[(proposed_action_id, final_action_id)] += 1
 
-        changed_count = total_count - same_count
-        change_rate = (changed_count / total_count) * 100 if total_count > 0 else 0.0
+    changed_count = total_count - same_count
+    change_rate = (changed_count / total_count) * 100 if total_count > 0 else 0.0
 
     print(f"\n===== Postprocess =====\n"
               f"Same: {same_count}\n"
@@ -241,7 +241,6 @@ def proposeToFinalCount(files_len, files):
             
 def phase_distribution(files_len, files):
     phase_counts = collections.Counter()
-    action_counts = collections.Counter()
     phase_action_counts = collections.Counter()
 
     for i in range(files_len):
@@ -258,6 +257,15 @@ def phase_distribution(files_len, files):
             phase_action_counts[(phase, action_id)] += 1
 
     phase_total = sum(phase_counts.values())
+
+    print("\n===== Phase Distribution =====\n"
+            f"Track: {phase_counts['track']} "
+            f"({phase_counts['track'] / phase_total * 100:.2f}%)\n"
+            f"Reacq: {phase_counts['reacq']} "
+            f"({phase_counts['reacq'] / phase_total * 100:.2f}%)\n"
+            f"Patrol: {phase_counts['patrol']} "
+            f"({phase_counts['patrol'] / phase_total * 100:.2f}%)\n")
+
 
     for phase in ["track", "reacq", "patrol"]:
         print(phase)
