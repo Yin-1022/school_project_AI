@@ -101,24 +101,33 @@ def analyze_training_targets():
           f"  Positive: {source_outcome_counts[('DIRECT', 'HIGH', 'POSITIVE')]}\n"
           f"  Negative: {source_outcome_counts[('DIRECT', 'HIGH', 'NEGATIVE')]}\n"
           f"  Neutral:  {source_outcome_counts[('DIRECT', 'HIGH', 'NEUTRAL')]} \n"
+          f" None\n"
+          f"  Positive: {source_outcome_counts[('DIRECT', 'NONE', 'POSITIVE')]}\n"
+          f"  Negative: {source_outcome_counts[('DIRECT', 'NONE', 'NEGATIVE')]}\n"
+          f"  Neutral:  {source_outcome_counts[('DIRECT', 'NONE', 'NEUTRAL')]}\n"
           f"CORRECTED\n"
           f" Low\n"
           f"  Positive: {source_outcome_counts[('CORRECTED', 'LOW', 'POSITIVE')]}\n" 
           f"  Negative: {source_outcome_counts[('CORRECTED', 'LOW', 'NEGATIVE')]}\n"
           f"  Neutral:  {source_outcome_counts[('CORRECTED', 'LOW', 'NEUTRAL')]} \n"
           f" Medium\n"
-          f"  Positive: {source_outcome_counts[('CORRECTED', 'MEDIUM', 'POSITIVE')]}\n"
-          f"  Negative: {source_outcome_counts[('CORRECTED', 'MEDIUM', 'NEGATIVE')]}\n"
-          f"  Neutral:  {source_outcome_counts[('CORRECTED', 'MEDIUM', 'NEUTRAL')]} \n"
+          f"  Positive: {source_outcome_counts[('CORRECTED', 'MED', 'POSITIVE')]}\n"
+          f"  Negative: {source_outcome_counts[('CORRECTED', 'MED', 'NEGATIVE')]}\n"
+          f"  Neutral:  {source_outcome_counts[('CORRECTED', 'MED', 'NEUTRAL')]} \n"
           f" High\n"
           f"  Positive: {source_outcome_counts[('CORRECTED', 'HIGH', 'POSITIVE')]}\n"
           f"  Negative: {source_outcome_counts[('CORRECTED', 'HIGH', 'NEGATIVE')]}\n"
-          f"  Neutral:  {source_outcome_counts[('CORRECTED', 'HIGH', 'NEUTRAL')]} \n")
+          f"  Neutral:  {source_outcome_counts[('CORRECTED', 'HIGH', 'NEUTRAL')]} \n"
+          f" None\n"
+          f"  Positive: {source_outcome_counts[('CORRECTED', 'NONE', 'POSITIVE')]}\n"
+          f"  Negative: {source_outcome_counts[('CORRECTED', 'NONE', 'NEGATIVE')]}\n"
+          f"  Neutral:  {source_outcome_counts[('CORRECTED', 'NONE', 'NEUTRAL')]}\n")
 
     print(f"\n===== Corrected Pair Outcomes =====")
     print(
         f"{'Proposed':<15} "
-        f"{'Final':<10} "
+        f"{'Final':<16} "
+        f"{'Priority':<5} "
         f"{'+':>7} "
         f"{'0':>7} "
         f"{'-':>7}"
@@ -129,7 +138,14 @@ def analyze_training_targets():
         neutral = corrected_pair_counts[(proposed_id, final_id, priority_name, "NEUTRAL")]
         negative = corrected_pair_counts[(proposed_id, final_id, priority_name, "NEGATIVE")]
 
-        print(f"{ACTION_ID_TO_NAME[proposed_id]:<15} {ACTION_ID_TO_NAME[final_id]:<16} {positive:<7} {neutral:<7} {negative:<7}")
+        print(
+            f"{ACTION_ID_TO_NAME[proposed_id]:<15} "
+            f"{ACTION_ID_TO_NAME[final_id]:<16} "
+            f"{priority_name:<5} "
+            f"{positive:>7} "
+            f"{neutral:>7} "
+            f"{negative:>7}"
+        )
 
     print(f"\n===== Learning Action Outcomes =====")
     print(f"Action               Positive   Neutral   Negative")
