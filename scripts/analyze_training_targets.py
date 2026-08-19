@@ -3,6 +3,12 @@ import collections
 import numpy as np
 from reward_priority import resolve_priority_reward
 from constant import ACTION_ID_TO_NAME
+PRIORITY_NAMES = {
+    0: "NONE",
+    1: "LOW",
+    2: "MED",
+    3: "HIGH",
+}
 
 ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
 
@@ -62,6 +68,7 @@ def analyze_training_targets():
 
             selected_reward = resolved["reward"]
             priority = resolved["priority"]
+            priority_name = PRIORITY_NAMES[priority]
 
             source = get_source(
                 proposed_action_id,
@@ -72,40 +79,41 @@ def analyze_training_targets():
                 selected_reward
             )
 
-            source_outcome_counts[(source, outcome)] += 1
+            source_outcome_counts[(source, priority_name, outcome)] += 1
 
             if source == "CORRECTED":
-                corrected_pair_counts[
-                    (
-                        proposed_action_id,
-                        final_action_id,
-                        outcome,
-                    )
-                ] += 1
+                corrected_pair_counts[(proposed_action_id,final_action_id,priority_name,outcome)] += 1
+                corrected_pairs.add((proposed_action_id,final_action_id, priority))
 
-                corrected_pairs.add((proposed_action_id,final_action_id,))
-
-            learning_action_counts[(learning_action_id,outcome)] += 1
+            learning_action_counts[(learning_action_id,priority_name,outcome)] += 1
 
     print(f"===== Training Target Source =====\n"
           f"DIRECT\n"
-          f" Positive: {source_outcome_counts[('DIRECT', 'POSITIVE')]}\n" 
-          f" Negative: {source_outcome_counts[('DIRECT', 'NEGATIVE')]}\n"
-          f" Neutral:  {source_outcome_counts[('DIRECT', 'NEUTRAL')]} \n"
+          f" Low\n"
+          f"  Positive: {source_outcome_counts[('DIRECT', 'LOW', 'POSITIVE')]}\n" 
+          f"  Negative: {source_outcome_counts[('DIRECT', 'LOW', 'NEGATIVE')]}\n"
+          f"  Neutral:  {source_outcome_counts[('DIRECT', 'LOW', 'NEUTRAL')]} \n"
+          f" Medium\n"
+          f"  Positive: {source_outcome_counts[('DIRECT', 'MED', 'POSITIVE')]}\n"
+          f"  Negative: {source_outcome_counts[('DIRECT', 'MED', 'NEGATIVE')]}\n"
+          f"  Neutral:  {source_outcome_counts[('DIRECT', 'MED', 'NEUTRAL')]} \n"
+          f" High\n"
+          f"  Positive: {source_outcome_counts[('DIRECT', 'HIGH', 'POSITIVE')]}\n"
+          f"  Negative: {source_outcome_counts[('DIRECT', 'HIGH', 'NEGATIVE')]}\n"
+          f"  Neutral:  {source_outcome_counts[('DIRECT', 'HIGH', 'NEUTRAL')]} \n"
           f"CORRECTED\n"
-          f" Positive: {source_outcome_counts[('CORRECTED', 'POSITIVE')]}\n" 
-          f" Negative: {source_outcome_counts[('CORRECTED', 'NEGATIVE')]}\n"
-          f" Neutral:  {source_outcome_counts[('CORRECTED', 'NEUTRAL')]} ")
-
-    
-
-    if source == "CORRECTED":
-        corrected_pairs.add(
-            (
-                proposed_action_id,
-                final_action_id,
-            )
-        )
+          f" Low\n"
+          f"  Positive: {source_outcome_counts[('CORRECTED', 'LOW', 'POSITIVE')]}\n" 
+          f"  Negative: {source_outcome_counts[('CORRECTED', 'LOW', 'NEGATIVE')]}\n"
+          f"  Neutral:  {source_outcome_counts[('CORRECTED', 'LOW', 'NEUTRAL')]} \n"
+          f" Medium\n"
+          f"  Positive: {source_outcome_counts[('CORRECTED', 'MEDIUM', 'POSITIVE')]}\n"
+          f"  Negative: {source_outcome_counts[('CORRECTED', 'MEDIUM', 'NEGATIVE')]}\n"
+          f"  Neutral:  {source_outcome_counts[('CORRECTED', 'MEDIUM', 'NEUTRAL')]} \n"
+          f" High\n"
+          f"  Positive: {source_outcome_counts[('CORRECTED', 'HIGH', 'POSITIVE')]}\n"
+          f"  Negative: {source_outcome_counts[('CORRECTED', 'HIGH', 'NEGATIVE')]}\n"
+          f"  Neutral:  {source_outcome_counts[('CORRECTED', 'HIGH', 'NEUTRAL')]} \n")
 
     print(f"\n===== Corrected Pair Outcomes =====")
     print(
@@ -115,21 +123,56 @@ def analyze_training_targets():
         f"{'0':>7} "
         f"{'-':>7}"
     )
-    for proposed_id, final_id in corrected_pairs:
-        positive = corrected_pair_counts[(proposed_id, final_id, "POSITIVE")]
-        neutral = corrected_pair_counts[(proposed_id, final_id, "NEUTRAL")]
-        negative = corrected_pair_counts[(proposed_id, final_id, "NEGATIVE")]
+    for proposed_id, final_id, priority in corrected_pairs:
+        priority_name = PRIORITY_NAMES.get(priority, "UNKNOWN")
+        positive = corrected_pair_counts[(proposed_id, final_id, priority_name, "POSITIVE")]
+        neutral = corrected_pair_counts[(proposed_id, final_id, priority_name, "NEUTRAL")]
+        negative = corrected_pair_counts[(proposed_id, final_id, priority_name, "NEGATIVE")]
 
         print(f"{ACTION_ID_TO_NAME[proposed_id]:<15} {ACTION_ID_TO_NAME[final_id]:<16} {positive:<7} {neutral:<7} {negative:<7}")
 
     print(f"\n===== Learning Action Outcomes =====")
     print(f"Action               Positive   Neutral   Negative")
     for action_id in range(len(ACTION_ID_TO_NAME)):
-        positive = learning_action_counts[(action_id, "POSITIVE")]
-        neutral = learning_action_counts[(action_id, "NEUTRAL")]
-        negative = learning_action_counts[(action_id, "NEGATIVE")]
+        positive = sum(
+            learning_action_counts[
+                (
+                    action_id,
+                    priority_name,
+                    "POSITIVE",
+                )
+            ]
+            for priority_name in PRIORITY_NAMES.values()
+        )
 
-        print(f"{ACTION_ID_TO_NAME[action_id]:<20} {positive:<10} {neutral:<10} {negative:<10}")
+        neutral = sum(
+            learning_action_counts[
+                (
+                    action_id,
+                    priority_name,
+                    "NEUTRAL",
+                )
+            ]
+            for priority_name in PRIORITY_NAMES.values()
+        )
+
+        negative = sum(
+            learning_action_counts[
+                (
+                    action_id,
+                    priority_name,
+                    "NEGATIVE",
+                )
+            ]
+            for priority_name in PRIORITY_NAMES.values()
+        )
+
+        print(
+            f"{ACTION_ID_TO_NAME[action_id]:<20} "
+            f"{positive:<10} "
+            f"{neutral:<10} "
+            f"{negative:<10}"
+        )
 
 def main():
     analyze_training_targets()
