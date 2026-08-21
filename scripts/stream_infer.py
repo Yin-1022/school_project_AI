@@ -23,6 +23,7 @@ from constant import (
     POLICY_MODE,
     BLOCKING_ACTIONS
 )
+from behavior_policy import compute_behavior_probs
 
 # RAW_DIR = Path("data/raw_videos")
 # video_path = RAW_DIR / "raw_video_4_t.mp4"
@@ -303,7 +304,7 @@ def main():
                 last_step_cache = None
 
             if POLICY_MODE == "bc":
-                bc_out = infer_action(frames, extra_tensor, model)
+                bc_out = infer_action(frames, extra_tensor, model, sample=True)
                 proposed_action = bc_out["action_name"]
                 action_conf = bc_out["conf"]
                 topk_actions = [ACTION_ID_TO_NAME[id] for id in bc_out["topk_ids"][0]]
@@ -341,6 +342,16 @@ def main():
                 probs_for_log = torch.from_numpy(probs_np)
 
             if POLICY_MODE == "bc":
+                policy_probs_np = (probs_for_log.squeeze(0).detach().cpu().numpy())
+
+                behavior_probs, action_mapping = compute_behavior_probs(
+                    prob=policy_probs_np,
+                    pol_state=pol_state,
+                    topk_actions=topk_actions,
+                    frame_id_end=frame_id_end,
+                    info=info,
+                )
+
                 action, pol_state, fire_frame = apply_action_with_state(
                     pol_state,
                     proposed_action=proposed_action,
@@ -349,11 +360,25 @@ def main():
                     info=info
                 )
 
+                proposed_action_id = ACTION_NAME_TO_ID[proposed_action]
+                expected_final_action_id = action_mapping[proposed_action_id]
+                actual_final_action_id = ACTION_NAME_TO_ID[action]
+
+                if expected_final_action_id != actual_final_action_id:
+                    raise RuntimeError(
+                        "Simulated final action does not match "
+                        "production final action"
+                    )
+            elif POLICY_MODE == "rule":
+                behavior_probs = np.zeros(len(ACTION_ID_TO_NAME),dtype=np.float32)
+                behavior_probs[ACTION_NAME_TO_ID[action]] = 1.0
+
             last_step_cache = {
                 "frames": frames,
                 "extra": extra_tensor,
                 "logits": logits_for_log,
                 "probs": probs_for_log,
+                "behavior_probs": behavior_probs if POLICY_MODE == "bc" else None,
 
                 "proposed_action": proposed_action,
                 "final_action": action,

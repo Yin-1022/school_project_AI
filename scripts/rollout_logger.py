@@ -3,7 +3,7 @@ import numpy as np
 from observation_builder import ACTION_NAME_TO_ID
 from constant import ROLLOUT_DIR
 
-def append_rollout_step(buffer, frames, extra, logits, probs, 
+def append_rollout_step(buffer, frames, extra, logits, probs, behavior_probs,
                         proposed_action, final_action, info, 
                         pol_state, frame_id_end, fire_frame,
                         ue_att1_start, ue_att1_end,
@@ -15,6 +15,7 @@ def append_rollout_step(buffer, frames, extra, logits, probs,
         "extra": extra.squeeze(0).detach().cpu().numpy(),     # shape (24,)
         "logits": logits.squeeze(0).detach().cpu().numpy(),   # shape
         "probs": probs.squeeze(0).detach().cpu().numpy(),     # shape (num_actions,)
+        "behavior_probs": np.asarray(behavior_probs, dtype=np.float32),
         "proposed_action_id": np.int64(ACTION_NAME_TO_ID[proposed_action]),
         "final_action_id": np.int64(ACTION_NAME_TO_ID[final_action]),
         "frame_id_end": np.int64(frame_id_end),
@@ -58,6 +59,7 @@ def flush_rollout_buffer(buffer):
         extra=np.stack([x["extra"] for x in buffer],axis=0),
         logits=np.stack([x["logits"] for x in buffer],axis=0),
         probs=np.stack([x["probs"] for x in buffer],axis=0),
+        behavior_probs=np.stack([x["behavior_probs"] for x in buffer],axis=0),
         proposed_action_id=np.asarray([x["proposed_action_id"] for x in buffer]),
         final_action_id=np.asarray([x["final_action_id"] for x in buffer]),
         frame_id_end=np.asarray([x["frame_id_end"] for x in buffer]),
@@ -170,6 +172,7 @@ def append_cached_step(rollout_buffer, cache, done=0):
         extra=cache["extra"],
         logits=cache["logits"],
         probs=cache["probs"],
+        behavior_probs=cache["behavior_probs"],
         proposed_action=cache["proposed_action"],
         final_action=cache["final_action"],
         info=cache["info"],
