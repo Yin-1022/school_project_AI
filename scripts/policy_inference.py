@@ -12,7 +12,7 @@ def load_model(weights_path:str, device:str ="cuda"):
     model.eval()
     return model
 
-def infer_action(frames, extra, model):
+def infer_action(frames, extra, model, sample=False):
     device = next(model.parameters()).device
     frames = frames.to(device)
     extra = extra.to(device)
@@ -21,7 +21,11 @@ def infer_action(frames, extra, model):
         logits = model(frames, extra)
         probs = torch.softmax(logits, dim=1)
 
-    action_id = probs.argmax(dim=1).item()
+    if sample:
+        action_id = torch.multinomial(probs, num_samples=1).item()
+    else:
+        action_id = probs.argmax(dim=1).item()
+
     conf = probs[0, action_id].item()
     action_name = ACTION_ID_TO_NAME[action_id]
     topk_probs, topk_ids = torch.topk(probs, k=3, dim=1)
