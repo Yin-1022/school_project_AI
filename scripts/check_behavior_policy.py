@@ -36,32 +36,39 @@ def main() -> None:
     )
     total_steps = len(data["frame_id_end"])
 
+    shown = 0
+    max_examples = 10
     for i in range(total_steps):
         proposed_id = int(data["proposed_action_id"][i])
         final_id = int(data["final_action_id"][i])
-        raw_proposed_prob = (data["behavior_probs"][i, proposed_id])
-        raw_final_prob = (data["behavior_probs"][i, final_id])
         actual_behavior_prob = (data["behavior_probs"][i, final_id])
 
-    if actual_behavior_prob <= 0:
-        raise ValueError(
-            f"Final action has zero behavior probability "
-            f"at step {i}"
-        )
+        if proposed_id == final_id:
+            continue
 
-    proposed_action_name = ACTION_ID_TO_NAME[proposed_id]
-    final_action_name = ACTION_ID_TO_NAME[final_id]
-    print(f"===== Behavior Policy Examples =====\n"
-          f"frame={data['frame_id_end'][i]} \n"
-          f"proposed={proposed_action_name} \n"
-          f"final={final_action_name} \n"
+        if actual_behavior_prob <= 0:
+            raise ValueError(f"Final action has zero behavior probability at step {i}")
 
-          f"raw:\n"
-          f" P({proposed_action_name})={raw_proposed_prob:.4f} \n"
-          f" P({final_action_name})={raw_final_prob:.4f} \n"
+        raw_proposed_prob = (data["probs"][i, proposed_id])
+        raw_final_prob = (data["probs"][i, final_id])
 
-          f"behavior:\n"
-          f" μ({final_action_name})={actual_behavior_prob:.4f}\n")
+        proposed_action_name = ACTION_ID_TO_NAME[proposed_id]
+        final_action_name = ACTION_ID_TO_NAME[final_id]
+        print(f"===== Behavior Policy Examples #frame{data['frame_id_end'][i]} =====\n"
+            f"proposed={proposed_action_name} \n"
+            f"final={final_action_name} \n"
+
+            f"raw:\n"
+            f" P({proposed_action_name})={raw_proposed_prob:.4f} \n"
+            f" P({final_action_name})={raw_final_prob:.4f} \n"
+
+            f"behavior:\n"
+            f" μ({final_action_name})={actual_behavior_prob:.4f}\n")
+
+        shown += 1
+
+        if shown >= max_examples:
+            break
 
 if __name__ == "__main__":
     main()
