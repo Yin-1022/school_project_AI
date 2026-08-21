@@ -378,7 +378,7 @@ def main():
                 "extra": extra_tensor,
                 "logits": logits_for_log,
                 "probs": probs_for_log,
-                "behavior_probs": behavior_probs if POLICY_MODE == "bc" else None,
+                "behavior_probs": behavior_probs,
 
                 "proposed_action": proposed_action,
                 "final_action": action,

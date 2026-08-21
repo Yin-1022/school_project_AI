@@ -24,7 +24,7 @@ def compute_behavior_probs(prob, pol_state, topk_actions, frame_id_end, info):
         behavior_probs[final_action_id] += prob[proposed_action_id]
         action_mapping[proposed_action_id] = final_action_id
 
-        if not np.isclose(behavior_probs.sum(), 1.0, atol=1e-5,):
-            raise ValueError("Behavior probabilities do not sum to 1.0")
+    if not np.isclose(behavior_probs.sum(), 1.0, atol=1e-5,):
+        raise ValueError("Behavior probabilities do not sum to 1.0")
 
     return behavior_probs, action_mapping
