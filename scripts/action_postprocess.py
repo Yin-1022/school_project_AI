@@ -1,5 +1,6 @@
 from constant import SAME_ACTION_REFIRE_FRAMES, RT_FRAMES, MIN_HOLD_FRAMES, CD_EVADE, CD_TURN, CD_PATROL, MAX_SEARCH_TURNS
 from policy import is_ready, arm_cooldown
+from copy import deepcopy
 
 def apply_action_with_state(pol_state, proposed_action, topk_actions, frame_id_end, info):
     hold_until_frame = pol_state.get("hold_until_frame", -1)
@@ -294,3 +295,14 @@ def apply_action_with_state(pol_state, proposed_action, topk_actions, frame_id_e
         arm_cooldown(pol_state, "PatrolStep", fire_frame, CD_PATROL)
 
     return action, pol_state, fire_frame
+
+def simulate_action_with_state(pol_state, proposed_action, topk_actions, frame_id_end, info):
+    pol_state_copy = deepcopy(pol_state)
+    action, simulated_state, fire_frame = apply_action_with_state(
+        pol_state_copy,
+        proposed_action,
+        topk_actions,
+        frame_id_end,
+        info
+    )
+    return action, simulated_state, fire_frame
