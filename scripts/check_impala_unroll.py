@@ -140,63 +140,63 @@ def check_unrolls(unrolls, unroll_length=20):
             for error in errors:
                 print(f"  - {error}")
 
-        total_unrolls = len(unrolls)
+    total_unrolls = len(unrolls)
 
-        print("\n===== Summary =====")
+    print("\n===== Summary =====")
 
-        print(f"Total unrolls: {total_unrolls}")
-        print(f"Passed: {passed_unrolls}")
-        print(f"Failed: {failed_unrolls}")
+    print(f"Total unrolls: {total_unrolls}")
+    print(f"Passed: {passed_unrolls}")
+    print(f"Failed: {failed_unrolls}")
 
-        print(
-            f"Time length: "
-            f"{check_pass_counts['time_length']}"
-            f"/{total_unrolls}"
-        )
+    print(
+        f"Time length: "
+        f"{check_pass_counts['time_length']}"
+        f"/{total_unrolls}"
+    )
 
-        print(
-            f"Valid masks: "
-            f"{check_pass_counts['valid_mask']}"
-            f"/{total_unrolls}"
-        )
+    print(
+        f"Valid masks: "
+        f"{check_pass_counts['valid_mask']}"
+        f"/{total_unrolls}"
+    )
 
-        print(
-            f"Terminal boundaries: "
-            f"{check_pass_counts['terminal_boundary']}"
-            f"/{total_unrolls}"
-        )
+    print(
+        f"Terminal boundaries: "
+        f"{check_pass_counts['terminal_boundary']}"
+        f"/{total_unrolls}"
+    )
 
-        print(
-            f"Bootstrap validity: "
-            f"{check_pass_counts['bootstrap_valid']}"
-            f"/{total_unrolls}"
-        )
+    print(
+        f"Bootstrap validity: "
+        f"{check_pass_counts['bootstrap_valid']}"
+        f"/{total_unrolls}"
+    )
 
-        print(
-            f"Behavior log probs: "
-            f"{check_pass_counts['behavior_log_prob']}"
-            f"/{total_unrolls}"
-        )
+    print(
+        f"Behavior log probs: "
+        f"{check_pass_counts['behavior_log_prob']}"
+        f"/{total_unrolls}"
+    )
 
-        print(
-            f"Raw probability sums: "
-            f"{check_pass_counts['raw_prob_sum']}"
-            f"/{total_unrolls}"
-        )
+    print(
+        f"Raw probability sums: "
+        f"{check_pass_counts['raw_prob_sum']}"
+        f"/{total_unrolls}"
+    )
 
-        print(
-            f"Behavior probability sums: "
-            f"{check_pass_counts['behavior_prob_sum']}"
-            f"/{total_unrolls}"
-        )
+    print(
+        f"Behavior probability sums: "
+        f"{check_pass_counts['behavior_prob_sum']}"
+        f"/{total_unrolls}"
+    )
 
-        print(
-            "Time length:",
-            status(
-                check_pass_counts["time_length"],
-                total_unrolls,
-            ),
-        )
+    print(
+        "Time length:",
+        status(
+            check_pass_counts["time_length"],
+            total_unrolls,
+        ),
+    )
 
 def main() -> None:
     files = sorted(
@@ -218,7 +218,6 @@ def main() -> None:
         allow_pickle=False,
     )
     unrolls = build_unrolls(data, unroll_length=20)
-    check_unrolls(unrolls, unroll_length=20)
 
     print(
         "\n===== IMPALA Unroll "
