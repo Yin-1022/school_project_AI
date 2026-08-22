@@ -1,18 +1,21 @@
 import numpy as np
 from pathlib import Path
-from constant import ACTION_ID_TO_NAME
 
 ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
 
-UNROLL_LENGTH = 20
-
-def build_full_unrolls(data,unroll_length=20):
+def build_full_unrolls(data, unroll_length=20):
     unrolls = []
     total_steps = len(data["proposed_action_id"])
     start = 0
 
-    while start + UNROLL_LENGTH < total_steps:
-        end = start + UNROLL_LENGTH
+    while start + unroll_length < total_steps:
+        end = start + unroll_length
+
+        chunk_done = data["done"][start:end]
+        if np.any(chunk_done):
+            start = end
+            continue
+
         unroll_dict = {
             "frames": data["frames"][start:end],
             "extra": data["extra"][start:end],
@@ -51,7 +54,7 @@ def main() -> None:
         path,
         allow_pickle=False,
     )
-    unrolls = build_full_unrolls(data,unroll_length=UNROLL_LENGTH)
+    unrolls = build_full_unrolls(data, unroll_length=20)
     print(len(unrolls))
 
     for i, unroll in enumerate(unrolls):
