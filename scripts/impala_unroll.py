@@ -152,7 +152,7 @@ def main() -> None:
         )
 
     print(
-        "\selected_reward:",
+        "\nselected_reward:",
         unroll["selected_reward"][:5],
     )
 
