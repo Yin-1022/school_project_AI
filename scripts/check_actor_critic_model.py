@@ -47,10 +47,15 @@ def main() -> None:
         bootstrap_logits, bootstrap_values = model(bootstrap_frames, bootstrap_extra)
 
     assert logits.shape == (20, 10)
-    assert values.shape == (20, 1)
+    assert values.shape == (20,)
     assert bootstrap_logits.shape == (1, 10)
-    assert bootstrap_values.shape == (1, 1)
+    assert bootstrap_values.shape == (1, )
     assert torch.isfinite(logits).all()
     assert torch.isfinite(values).all()
     assert torch.isfinite(bootstrap_logits).all()
     assert torch.isfinite(bootstrap_values).all()
+
+    print("Actor-Critic smoke test: OK")
+
+if __name__ == "__main__":
+    main()
