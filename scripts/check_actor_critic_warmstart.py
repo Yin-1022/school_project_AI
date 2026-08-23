@@ -8,7 +8,6 @@ from models import (
 )
 
 from impala_unroll import build_unrolls
-from models import TeacherActorCriticNet
 
 ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
 
@@ -44,6 +43,9 @@ ac_state["policy_head.weight"] = bc_state["head.2.weight"]
 ac_state["policy_head.bias"] = bc_state["head.2.bias"]
 
 actor_critic.load_state_dict(ac_state)
+
+bc_model.eval()
+actor_critic.eval()
 
 def main() -> None:
     files = sorted(
