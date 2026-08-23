@@ -32,20 +32,21 @@ bc_state = torch.load(
 
 bc_model.load_state_dict(bc_state)
 
-ac_state = actor_critic.state_dict()
-for key, value in bc_state.items():
-    if key.startswith("visual.") or key.startswith("extra_mlp."):
-        ac_state[key] = value
+def warmstart_actor_critic_from_bc(actor_critic, bc_model):
+    ac_state = actor_critic.state_dict()
+    for key, value in bc_state.items():
+        if key.startswith("visual.") or key.startswith("extra_mlp."):
+            ac_state[key] = value
 
-ac_state["trunk.0.weight"] = bc_state["head.0.weight"]
-ac_state["trunk.0.bias"] = bc_state["head.0.bias"]
-ac_state["policy_head.weight"] = bc_state["head.2.weight"]
-ac_state["policy_head.bias"] = bc_state["head.2.bias"]
+    ac_state["trunk.0.weight"] = bc_state["head.0.weight"]
+    ac_state["trunk.0.bias"] = bc_state["head.0.bias"]
+    ac_state["policy_head.weight"] = bc_state["head.2.weight"]
+    ac_state["policy_head.bias"] = bc_state["head.2.bias"]
 
-actor_critic.load_state_dict(ac_state)
+    actor_critic.load_state_dict(ac_state)
 
-bc_model.eval()
-actor_critic.eval()
+    bc_model.eval()
+    actor_critic.eval()
 
 def main() -> None:
     files = sorted(
@@ -68,6 +69,7 @@ def main() -> None:
     )
     unrolls = build_unrolls(data, unroll_length=20)
     unroll = unrolls[0]
+    warmstart_actor_critic_from_bc(actor_critic, bc_model)
 
     frames = torch.from_numpy(unroll["frames"]).float()
     extra = torch.from_numpy(unroll["extra"]).float()
