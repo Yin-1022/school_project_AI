@@ -18,6 +18,8 @@ actor_critic = TeacherActorCriticNet(
     num_actions=10,
 )
 
+actor_critic.eval()
+
 def main() -> None:
     files = sorted(
             ROLLOUT_DIR.glob("*.npz"),
@@ -124,6 +126,14 @@ def main() -> None:
         20,
     )
 
+    assert done.shape == (
+        BATCH_UNROLLS,
+        20,
+    )
+
     assert torch.isfinite(logits).all()
     assert torch.isfinite(values).all()
     print("Actor-Critic batch smoke test: OK")
+
+if __name__ == "__main__":
+    main()

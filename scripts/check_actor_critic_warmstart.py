@@ -34,6 +34,7 @@ bc_model.load_state_dict(bc_state)
 
 def warmstart_actor_critic_from_bc(actor_critic, bc_model):
     ac_state = actor_critic.state_dict()
+    bc_state = bc_model.state_dict()
     for key, value in bc_state.items():
         if key.startswith("visual.") or key.startswith("extra_mlp."):
             ac_state[key] = value
