@@ -126,7 +126,7 @@ def main() -> None:
     terminal_valid_mask = torch.from_numpy(terminal_unroll["valid_mask"]).unsqueeze(0).float()
     terminal_rhos = torch.ones_like(terminal_done)
 
-    clipped_rhos, cs, terminal_discounts = (
+    _, _, terminal_discounts = (
         prepare_vtrace_weights(
             rhos=terminal_rhos,
             done=terminal_done,

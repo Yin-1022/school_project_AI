@@ -34,7 +34,7 @@ def prepare_vtrace_weights(rhos, done, valid_mask, gamma=0.99, rho_clip=1.0, c_c
 @torch.no_grad()
 def compute_vtrace_value_targets(rewards, values, bootstrap_value, discounts, clipped_rhos, cs, valid_mask):
     # V(s_{t+1})
-    next_values = torch.cat([values[:, 1:], bootstrap_value.unsqueeze(0)], dim=1)
+    next_values = torch.cat([values[:, 1:], bootstrap_value.unsqueeze(1)], dim=1)
 
     # δ_t^V
     deltas = clipped_rhos * (rewards + discounts * next_values - values)
