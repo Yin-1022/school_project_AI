@@ -4,7 +4,7 @@ from pathlib import Path
 
 from models import (TeacherActorCriticNet,)
 from impala_unroll import build_unrolls
-from vtrace import compute_importance_ratios
+from vtrace import compute_importance_ratios, prepare_vtrace_weights
 
 ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
 BATCH_UNROLLS = 1
@@ -50,11 +50,24 @@ def main() -> None:
         axis=0,
     )
 
+    done = np.stack(
+        [u["done"] for u in batch_unrolls],
+        axis=0,
+    )
+
+    valid_mask = np.stack(
+        [u["valid_mask"] for u in batch_unrolls],
+        axis=0,
+    )
+
     action = np.stack([u["proposed_action_id"] for u in batch_unrolls])
     action_tensor = torch.from_numpy(action).long()
 
     behavior_log_prob = np.stack([u["behavior_log_prob"] for u in batch_unrolls])
     behavior_log_prob_tensor = torch.from_numpy(behavior_log_prob).float()
+
+    done_tensor = torch.from_numpy(done).float()
+    valid_mask_tensor = torch.from_numpy(valid_mask).float()
     
     batch_size = frames.shape[0]
     unroll_length = frames.shape[1]
@@ -82,42 +95,71 @@ def main() -> None:
         )
     )
 
-    assert target_action_log_prob.shape == (
-        BATCH_UNROLLS,
-        20,
+    clipped_rhos, cs, discounts = prepare_vtrace_weights(
+        rhos=rhos,
+        done=done_tensor,
+        valid_mask=valid_mask_tensor,
     )
 
-    assert log_rhos.shape == (
-        BATCH_UNROLLS,
-        20,
+    assert target_action_log_prob.shape == (BATCH_UNROLLS,20,)
+
+    assert log_rhos.shape == (BATCH_UNROLLS,20,)
+
+    assert rhos.shape == (BATCH_UNROLLS,20,)
+
+    assert clipped_rhos.shape == rhos.shape
+
+    assert cs.shape == rhos.shape
+
+    assert discounts.shape == rhos.shape
+
+    assert torch.isfinite(target_action_log_prob).all()
+
+    assert torch.isfinite(log_rhos).all()
+
+    assert torch.isfinite(rhos).all()
+
+    assert torch.all(clipped_rhos <= 1.0 + 1e-6)
+
+    assert torch.all(cs <= 1.0 + 1e-6)
+
+    terminal_unroll = next(u for u in unrolls if u["bootstrap_valid"] == 0)
+    terminal_done = torch.from_numpy(terminal_unroll["done"]).unsqueeze(0).float()
+    terminal_valid_mask = torch.from_numpy(terminal_unroll["valid_mask"]).unsqueeze(0).float()
+    terminal_rhos = torch.ones_like(terminal_done)
+
+    clipped_rhos, cs, terminal_discounts = (
+        prepare_vtrace_weights(
+            rhos=terminal_rhos,
+            done=terminal_done,
+            valid_mask=terminal_valid_mask,
+            gamma=0.99,
+        )
     )
 
-    assert rhos.shape == (
-        BATCH_UNROLLS,
-        20,
-    )
+    valid_steps = int(terminal_valid_mask[0].sum().item())
+    terminal_index = valid_steps - 1
 
-    assert torch.isfinite(
-        target_action_log_prob
-    ).all()
+    assert terminal_done[0, terminal_index] == 1
 
-    assert torch.isfinite(
-        log_rhos
-    ).all()
+    assert terminal_discounts[0, terminal_index] == 0
 
-    assert torch.isfinite(
-        rhos
-    ).all()
+    assert torch.all(terminal_discounts[0, valid_steps:] == 0)
+
+    valid_rhos = rhos[valid_mask_tensor.bool()]
 
     print("===== V-trace Importance Ratio Check =====\n")
     print(f"target_action_log_prob: {target_action_log_prob.shape}")
     print(f"log_rhos: {log_rhos.shape}")
     print(f"rhos: {rhos.shape}\n")
     print("Valid rho stats:")
-    print(f"min: {rhos.min().item()}")
-    print(f"max: {rhos.max().item()}")
-    print(f"mean: {rhos.mean().item()}")
-    print(f"median: {rhos.median().item()}")
+    print(f"min: {valid_rhos.min().item()}")
+    print(f"max: {valid_rhos.max().item()}")
+    print(f"mean: {valid_rhos.mean().item()}")
+    print(f"median: {valid_rhos.median().item()}")
+    print(f"terminal done: {terminal_done[0]}")
+    print(f"terminal valid mask: {terminal_valid_mask[0]}")
+    print(f"terminal discounts: {terminal_discounts[0]}")
 
     print("Importance ratio calculation: OK")
 
