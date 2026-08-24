@@ -4,7 +4,7 @@ from pathlib import Path
 
 from models import (TeacherActorCriticNet,)
 from impala_unroll import build_unrolls
-from vtrace import compute_importance_ratios, prepare_vtrace_weights
+from vtrace import compute_importance_ratios, prepare_vtrace_weights, compute_vtrace_value_targets
 
 ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
 BATCH_UNROLLS = 1
@@ -37,8 +37,8 @@ def main() -> None:
         allow_pickle=False,
     )
     unrolls = build_unrolls(data, unroll_length=20)
-    batch_unrolls = unrolls[:BATCH_UNROLLS]
-    terminal_unroll = unrolls[-1]
+    terminal_unroll = next(u for u in unrolls if u["bootstrap_valid"] == 0)
+    batch_unrolls = [terminal_unroll]
 
     frames = np.stack(
         [u["frames"] for u in batch_unrolls],
@@ -77,15 +77,13 @@ def main() -> None:
 
     flat_frames = torch.from_numpy(flat_frames).float()
     flat_extra = torch.from_numpy(flat_extra).float()
+    flat_values = torch.zeros((batch_size * unroll_length, 1))
 
     with torch.no_grad():
-        flat_logits, _ = actor_critic(flat_frames, flat_extra)
+        flat_logits, flat_values = actor_critic(flat_frames, flat_extra)
 
-    logits = flat_logits.reshape(
-        batch_size,
-        unroll_length,
-        -1,
-    )
+    logits = flat_logits.reshape(batch_size, unroll_length, -1,)
+    values = flat_values.reshape(batch_size, unroll_length,)
 
     target_action_log_prob, log_rhos, rhos = (
         compute_importance_ratios(
@@ -145,6 +143,51 @@ def main() -> None:
     assert terminal_discounts[0, terminal_index] == 0
 
     assert torch.all(terminal_discounts[0, valid_steps:] == 0)
+
+    selected_reward = np.stack([u["selected_reward"] for u in batch_unrolls])
+    reward_tensor = torch.from_numpy(selected_reward).float()
+
+    bootstrap_frames = np.stack([u["bootstrap_frames"] for u in batch_unrolls], axis=0)
+    bootstrap_extra = np.stack([u["bootstrap_extra"] for u in batch_unrolls], axis=0)
+    bootstrap_valid = np.stack([u["bootstrap_valid"] for u in batch_unrolls], axis=0)
+    bootstrap_frames_tensor = torch.from_numpy(bootstrap_frames).float()
+    bootstrap_extra_tensor = torch.from_numpy(bootstrap_extra).float()
+    bootstrap_valid_tensor = torch.from_numpy(bootstrap_valid).float()
+
+    with torch.no_grad():
+        _, raw_bootstrap_value = actor_critic(bootstrap_frames_tensor,bootstrap_extra_tensor,)
+
+    bootstrap_value = (raw_bootstrap_value* bootstrap_valid_tensor)
+
+    vs = compute_vtrace_value_targets(
+        rewards=reward_tensor,
+        values=values,
+        bootstrap_value=bootstrap_value,
+        discounts=discounts,
+        clipped_rhos=clipped_rhos,
+        cs=cs,
+        valid_mask=valid_mask_tensor,
+    )
+
+    assert vs.shape == values.shape
+    assert torch.isfinite(vs).all()
+    assert torch.all(vs[valid_mask_tensor == 0] == 0)
+
+    t = valid_steps - 1
+    expected_terminal_v = (
+        values[:, t]
+        + clipped_rhos[:, t]
+        * (
+            reward_tensor[:, t]
+            - values[:, t]
+        )
+    )
+
+    assert torch.allclose(
+        vs[0, t],
+        expected_terminal_v,
+        atol=1e-6,
+    )
 
     valid_rhos = rhos[valid_mask_tensor.bool()]
 
