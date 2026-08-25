@@ -62,6 +62,7 @@ def compute_vtrace_value_targets(rewards, values, bootstrap_value, discounts, cl
 
     return vs
 
+@torch.no_grad()
 def compute_policy_gradient_advantages(rewards, values, vs, bootstrap_value, discounts, clipped_rhos, valid_mask):
     next_vs = torch.cat([vs[:, 1:], bootstrap_value.unsqueeze(1)], dim=1)
 
