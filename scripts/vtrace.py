@@ -61,3 +61,11 @@ def compute_vtrace_value_targets(rewards, values, bootstrap_value, discounts, cl
         vs[:, t] = torch.where(is_valid, next_vtrace, torch.zeros_like(next_vtrace))
 
     return vs
+
+def compute_policy_gradient_advantages(rewards, values, vs, bootstrap_value, discounts, clipped_rhos, valid_mask):
+    next_vs = torch.cat([vs[:, 1:], bootstrap_value.unsqueeze(1)], dim=1)
+
+    pg_advantages = clipped_rhos * (rewards + discounts * next_vs - values)
+    pg_advantages = pg_advantages * valid_mask.float()
+
+    return pg_advantages

@@ -4,7 +4,7 @@ from pathlib import Path
 
 from models import (TeacherActorCriticNet,)
 from impala_unroll import build_unrolls
-from vtrace import compute_importance_ratios, prepare_vtrace_weights, compute_vtrace_value_targets
+from vtrace import compute_importance_ratios, prepare_vtrace_weights, compute_vtrace_value_targets, compute_policy_gradient_advantages
 
 ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
 BATCH_UNROLLS = 1
@@ -77,7 +77,6 @@ def main() -> None:
 
     flat_frames = torch.from_numpy(flat_frames).float()
     flat_extra = torch.from_numpy(flat_extra).float()
-    flat_values = torch.zeros((batch_size * unroll_length, 1))
 
     with torch.no_grad():
         flat_logits, flat_values = actor_critic(flat_frames, flat_extra)
@@ -188,6 +187,34 @@ def main() -> None:
         expected_terminal_v,
         atol=1e-6,
     )
+
+    expected_terminal_advantage = (
+        clipped_rhos[0, t]
+        * (
+            reward_tensor[0, t]
+            - values[0, t]
+        )
+    )
+
+    pg_advantages = compute_policy_gradient_advantages(
+        rewards=reward_tensor,
+        values=values,
+        vs=vs,
+        bootstrap_value=bootstrap_value,
+        discounts=discounts,
+        clipped_rhos=clipped_rhos,
+        valid_mask=valid_mask_tensor,
+    )
+
+    assert torch.allclose(
+        pg_advantages[0, t],
+        expected_terminal_advantage,
+        atol=1e-6,
+    )
+
+    assert torch.all(pg_advantages[valid_mask_tensor == 0] == 0)
+    assert pg_advantages.shape == values.shape
+    assert torch.isfinite(pg_advantages).all()
 
     valid_rhos = rhos[valid_mask_tensor.bool()]
 
