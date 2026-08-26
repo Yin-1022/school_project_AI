@@ -140,12 +140,12 @@ def build_unrolls(data, unroll_length=20, has_behavior_probs=False):
                 "valid_mask": valid_mask,
                 "bootstrap_valid": np.int64(bootstrap_valid),
             }
+            if has_behavior_probs:
+                unroll_dict["behavior_probs"] = data["behavior_probs"][start:start + unroll_length]
+
             start = start + unroll_length
         else:
             break
-
-        if has_behavior_probs:
-            unroll_dict["behavior_probs"] = data["behavior_probs"][start:start + unroll_length]
 
         unrolls.append(unroll_dict)
 

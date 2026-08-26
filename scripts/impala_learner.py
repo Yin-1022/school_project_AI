@@ -138,9 +138,6 @@ def train_impala_batch(model, optimizer, batch_unrolls, max_grad_norm=40.0):
     optimizer.zero_grad(set_to_none=True)
     losses["total_loss"].backward()
 
-    optimizer.zero_grad()
-    losses["total_loss"].backward()
-
     grad_norm = torch.nn.utils.clip_grad_norm_(
         model.parameters(),
         max_norm=max_grad_norm,
