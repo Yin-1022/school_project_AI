@@ -140,12 +140,16 @@ def train_impala_batch(model, optimizer, batch_unrolls, max_grad_norm=40.0):
 
     optimizer.step()
 
+    valid_steps = valid_mask_tensor.sum()
+    valid_rhos = rhos[valid_mask_tensor.bool()]
+    mean_rho = valid_rhos.mean()
+
     return {
         "total_loss": losses["total_loss"],
         "policy_loss": losses["policy_loss"],
         "value_loss": losses["value_loss"],
         "entropy": losses["entropy"],
-        "grad_norm": losses["grad_norm"],
-        "mean_rho": losses["mean_rho"],
-        "valid_steps": losses["valid_steps"],
+        "grad_norm": grad_norm.detach(),
+        "mean_rho": mean_rho.detach(),
+        "valid_steps": valid_steps.detach(),
     }

@@ -2,9 +2,9 @@ import torch, torch.nn as nn
 import numpy as np
 from pathlib import Path
 
-from models import (TeacherActorCriticNet)
+from models import (TeacherActorCriticNet, TeacherPolicyNet)
 from impala_unroll import build_unrolls
-from impala_learner import train_impala_batch
+from impala_learner import train_impala_batch, warmstart_actor_critic_from_bc, set_impala_train_mode
 
 ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
 BATCH_UNROLLS = 1
@@ -34,36 +34,59 @@ def main() -> None:
             raise FileNotFoundError(
                 f"No rollout files found in {ROLLOUT_DIR}"
             )
-    
-    path = files[-1]
-    
-    print(f"loading: {path}")
-    
-    data = np.load(
-        path,
-        allow_pickle=False,
+
+    bc_model = TeacherPolicyNet(
+        in_ch=3,
+        extra_dim=24,
+        num_actions=10,
     )
 
-    unrolls = build_unrolls(data, unroll_length=20)
+    bc_state = torch.load(
+        BC_WEIGHTS_PATH,
+        map_location="cpu",
+    )
+
+    bc_model.load_state_dict(bc_state)
+
+    warmstart_actor_critic_from_bc(
+        actor_critic,
+        bc_model,
+    )
+
     optimizer = torch.optim.Adam(actor_critic.parameters(), lr=LEARNING_RATE)
 
     global_step = 0
-    for unroll in unrolls:
-        Loss =train_impala_batch(
-            actor_critic=actor_critic,
-            optimizer=optimizer,
-            unroll=[unroll]
-        )
-        global_step += 1
 
-        print(f"Step: {global_step}")
-        print(f"Loss: {Loss['total_loss'].item()}")
-        print(f"Policy: {Loss['policy_loss'].item()}")
-        print(f"Value: {Loss['value_loss'].item()}")
-        print(f"Entropy: {Loss['entropy'].item()}")
-        print(f"mean_rho: {Loss['mean_rho'].item()}")
-        print(f"grad_norm: {Loss['grad_norm'].item()}")
-        print(f"Valid: {Loss['valid_steps'].item()}")
+    for path in files:
+        print(f"loading: {path}")
+
+        data = np.load(
+            path,
+            allow_pickle=False,
+        )
+
+        unrolls = build_unrolls(
+            data,
+            unroll_length=UNROLL_LENGTH,
+        )
+
+        for unroll in unrolls:
+            metrics = train_impala_batch(
+                model=actor_critic,
+                optimizer=optimizer,
+                batch_unrolls=[unroll],
+                max_grad_norm=MAX_GRAD_NORM,
+            )
+            global_step += 1
+
+            print(f"Step: {global_step}")
+            print(f"Loss: {metrics['total_loss'].item()}")
+            print(f"Policy: {metrics['policy_loss'].item()}")
+            print(f"Value: {metrics['value_loss'].item()}")
+            print(f"Entropy: {metrics['entropy'].item()}")
+            print(f"mean_rho: {metrics['mean_rho'].item()}")
+            print(f"grad_norm: {metrics['grad_norm'].item()}")
+            print(f"Valid: {metrics['valid_steps'].item()}")
 
     torch.save(
         {
@@ -78,3 +101,6 @@ def main() -> None:
         },
         SAVE_PATH,
     )
+
+if __name__ == "__main__":
+    main()
