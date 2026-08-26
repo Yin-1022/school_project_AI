@@ -22,5 +22,5 @@ def set_impala_train_mode(model):
     model.train()
 
     for module in model.modules():
-        if isinstance(module, nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d):
+        if isinstance(module, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
             module.eval()

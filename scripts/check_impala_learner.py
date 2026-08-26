@@ -4,10 +4,12 @@ from pathlib import Path
 
 from models import (TeacherActorCriticNet, TeacherPolicyNet)
 from impala_unroll import build_unrolls
-from impala_learner import set_impala_train_mode
+from impala_learner import warmstart_actor_critic_from_bc, set_impala_train_mode
 
 ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
 BATCH_UNROLLS = 1
+
+BC_WEIGHTS_PATH = Path("data/meta/best_teacher_policy.pt")
 
 bc_model = TeacherPolicyNet(
     in_ch=3,
@@ -56,10 +58,24 @@ def main() -> None:
         axis=0,
     )
 
-    bc_logits = bc_model(frames, extra)
-    ac_logits = actor_critic(frames, extra)
+    batch_size = frames.shape[0]
+    unroll_length = frames.shape[1]
 
-    torch.allclose(bc_logits, ac_logits, atol=1e-6)
+    flat_frames = frames.reshape(batch_size * unroll_length,*frames.shape[2:],)
+    flat_extra = extra.reshape(batch_size * unroll_length,-1)
+
+    flat_frames = torch.from_numpy(flat_frames).float()
+    flat_extra = torch.from_numpy(flat_extra).float()
+
+    bc_state = torch.load(BC_WEIGHTS_PATH,map_location="cpu")
+    bc_model.load_state_dict(bc_state)
+
+    warmstart_actor_critic_from_bc(actor_critic, bc_model)
+
+    bc_logits = bc_model(flat_frames, flat_extra)
+    ac_logits, _ = actor_critic(flat_frames, flat_extra)
+
+    assert torch.allclose(bc_logits, ac_logits, atol=1e-6)
 
     bn_modules = [
         module
@@ -74,6 +90,8 @@ def main() -> None:
         )
     ]
 
+    set_impala_train_mode(actor_critic)
+
     running_means_before = [
         bn.running_mean.clone() for bn in bn_modules
     ]
@@ -82,18 +100,7 @@ def main() -> None:
         bn.running_var.clone() for bn in bn_modules
     ]
 
-    batch_size = frames.shape[0]
-    unroll_length = frames.shape[1]
-
-    flat_frames = frames.reshape(batch_size * unroll_length,*frames.shape[2:],)
-    flat_extra = extra.reshape(batch_size * unroll_length,-1)
-
-    flat_frames = torch.from_numpy(flat_frames).float()
-    flat_extra = torch.from_numpy(flat_extra).float()
-
     actor_critic(flat_frames, flat_extra)
-
-    set_impala_train_mode(actor_critic)
 
     for bn, mean_before, var_before in zip(bn_modules, running_means_before, running_vars_before):
         assert torch.equal(
