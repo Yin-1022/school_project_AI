@@ -130,12 +130,21 @@ def train_impala_batch(model, optimizer, batch_unrolls, max_grad_norm=40.0):
         valid_mask=valid_mask_tensor,
     )
 
+    if not torch.isfinite(losses["total_loss"]):
+        raise FloatingPointError(
+            f"Non-finite IMPALA loss: {losses['total_loss'].item()}"
+        )
+
+    optimizer.zero_grad(set_to_none=True)
+    losses["total_loss"].backward()
+
     optimizer.zero_grad()
     losses["total_loss"].backward()
 
     grad_norm = torch.nn.utils.clip_grad_norm_(
         model.parameters(),
         max_norm=max_grad_norm,
+        error_if_nonfinite=True,
     )
 
     optimizer.step()
@@ -145,10 +154,10 @@ def train_impala_batch(model, optimizer, batch_unrolls, max_grad_norm=40.0):
     mean_rho = valid_rhos.mean()
 
     return {
-        "total_loss": losses["total_loss"],
-        "policy_loss": losses["policy_loss"],
-        "value_loss": losses["value_loss"],
-        "entropy": losses["entropy"],
+        "total_loss": losses["total_loss"].detach(),
+        "policy_loss": losses["policy_loss"].detach(),
+        "value_loss": losses["value_loss"].detach(),
+        "entropy": losses["entropy"].detach(),
         "grad_norm": grad_norm.detach(),
         "mean_rho": mean_rho.detach(),
         "valid_steps": valid_steps.detach(),

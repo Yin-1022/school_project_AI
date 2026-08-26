@@ -39,7 +39,32 @@ def compute_selected_reward(data, start, valid_length):
 
     return selected_reward, reward_priority
 
-def build_unrolls(data, unroll_length=20):
+def build_unrolls(data, unroll_length=20, has_behavior_probs=False):
+    required_fields = [
+        "frames",
+        "extra",
+        "proposed_action_id",
+        "final_action_id",
+        "reward_high",
+        "reward_medium",
+        "reward_low",
+        "ue_player_hit_count",
+        "ue_boss_hit_count",
+        "done",
+        "probs",
+    ]
+
+    missing = [
+        field
+        for field in required_fields
+        if field not in data.files
+    ]
+
+    if missing:
+        raise ValueError(
+            f"Rollout missing required IMPALA fields: {missing}"
+        )
+
     unrolls = []
     total_steps = len(data["proposed_action_id"])
     start = 0
@@ -73,13 +98,20 @@ def build_unrolls(data, unroll_length=20):
                 "reward_low": pad_first_dim(data["reward_low"][start:start + valid_length], unroll_length),
                 "done": pad_first_dim(data["done"][start:start + valid_length], unroll_length),
                 "probs": pad_first_dim(data["probs"][start:start + valid_length], unroll_length),
-                "behavior_probs": pad_first_dim(data["behavior_probs"][start:start + valid_length], unroll_length),
                 "behavior_log_prob": pad_first_dim(behavior_log_prob, unroll_length),
                 "bootstrap_frames": np.zeros_like(data["frames"][0]),
                 "bootstrap_extra": np.zeros_like(data["extra"][0]),
                 "valid_mask": valid_mask,
                 "bootstrap_valid": np.int64(bootstrap_valid),
             }
+
+            if has_behavior_probs:
+                unroll_dict["behavior_probs"] = pad_first_dim(
+                    data["behavior_probs"][
+                        start:start + valid_length
+                    ],
+                    unroll_length,
+                )
             start = start + valid_length
         elif remaining_steps > unroll_length:
             valid_mask = np.ones(unroll_length,dtype=np.float32)
@@ -102,7 +134,6 @@ def build_unrolls(data, unroll_length=20):
                 "reward_low": data["reward_low"][start:start + unroll_length],
                 "done": data["done"][start:start + unroll_length],
                 "probs": data["probs"][start:start + unroll_length],
-                "behavior_probs": data["behavior_probs"][start:start + unroll_length],
                 "behavior_log_prob": behavior_log_prob,
                 "bootstrap_frames": data["frames"][start + unroll_length],
                 "bootstrap_extra": data["extra"][start + unroll_length],
@@ -112,6 +143,9 @@ def build_unrolls(data, unroll_length=20):
             start = start + unroll_length
         else:
             break
+
+        if has_behavior_probs:
+            unroll_dict["behavior_probs"] = data["behavior_probs"][start:start + unroll_length]
 
         unrolls.append(unroll_dict)
 
@@ -136,7 +170,8 @@ def main() -> None:
         path,
         allow_pickle=False,
     )
-    unrolls = build_unrolls(data, unroll_length=20)
+    has_behavior_probs = "behavior_probs" in data.files
+    unrolls = build_unrolls(data, unroll_length=20, has_behavior_probs=has_behavior_probs)
     print(len(unrolls))
 
     for i, unroll in enumerate(unrolls):

@@ -7,7 +7,6 @@ from impala_unroll import build_unrolls
 from impala_learner import train_impala_batch, warmstart_actor_critic_from_bc, set_impala_train_mode
 
 ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
-BATCH_UNROLLS = 1
 
 BC_WEIGHTS_PATH = Path("data/meta/best_teacher_policy.pt")
 SAVE_PATH = Path("data/meta/impala_single_process.pt")
@@ -15,8 +14,6 @@ UNROLL_LENGTH = 20
 
 LEARNING_RATE = 1e-4
 MAX_GRAD_NORM = 40.0
-
-NUM_EPOCHS = 1
 
 actor_critic = TeacherActorCriticNet(
     in_ch=3,
