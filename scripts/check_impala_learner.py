@@ -92,6 +92,10 @@ def main() -> None:
 
     set_impala_train_mode(actor_critic)
 
+    assert actor_critic.training
+    for bn in bn_modules:
+        assert not bn.training
+
     running_means_before = [
         bn.running_mean.clone() for bn in bn_modules
     ]
