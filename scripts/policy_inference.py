@@ -12,13 +12,19 @@ def load_model(weights_path:str, device:str ="cuda"):
     model.eval()
     return model
 
-def infer_action(frames, extra, model, sample=False):
+def infer_action(frames, extra, model, sample=False, action_mask=None):
     device = next(model.parameters()).device
     frames = frames.to(device)
     extra = extra.to(device)
     
     with torch.no_grad():
         logits = model(frames, extra)
+
+        if action_mask is not None:
+            masked_logits = apply_action_mask(logits, action_mask)
+        else:
+            masked_logits = logits
+
         probs = torch.softmax(logits, dim=1)
 
     if sample:
@@ -74,3 +80,17 @@ def infer_player_state(frames, model):
         "topk_ids": topk_ids.cpu().numpy(),
         "topk_probs": topk_probs.cpu().numpy(),
     }
+
+def apply_action_mask(logits, action_mask):
+    mask_tensor = torch.as_tensor(
+        action_mask,
+        dtype=torch.bool,
+        device=logits.device,
+    )
+
+    mask_tensor = mask_tensor.unsqueeze(0)
+    masked_logits = torch.masked_fill(logits, ~mask_tensor, float("-inf"))
+
+    probs = torch.softmax(masked_logits, dim=-1)
+
+    return masked_logits

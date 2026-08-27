@@ -1,6 +1,7 @@
 import cv2
 from pathlib import Path
 import collections
+from scripts.action_mask import build_action_mask
 import torch
 import numpy as np
 from presence_data import save_presence_sample
@@ -303,8 +304,10 @@ def main():
                 )
                 last_step_cache = None
 
+            action_mask = build_action_mask(pol_state, frame_id_end, info)
+
             if POLICY_MODE == "bc":
-                bc_out = infer_action(frames, extra_tensor, model, sample=True)
+                bc_out = infer_action(frames, extra_tensor, model, sample=True, action_mask=action_mask)
                 proposed_action = bc_out["action_name"]
                 action_conf = bc_out["conf"]
                 topk_actions = [ACTION_ID_TO_NAME[id] for id in bc_out["topk_ids"][0]]

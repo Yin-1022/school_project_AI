@@ -142,12 +142,13 @@ def case_5_checking():
         "phase": "track",
     }
 
-    try:
-        mask = build_action_mask(pol_state, frame_id_end, info)
-    except RuntimeError as e:
-        assert str(e) == "Action mask contains no valid actions"
-        print("No valid actions mask: OK")
+    mask = build_action_mask(
+        pol_state,
+        frame_id_end,
+        info,
+    )
 
+    assert mask.any()
     print("At least one valid action: OK")
 
 def main():
