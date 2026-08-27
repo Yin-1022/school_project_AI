@@ -88,7 +88,10 @@ def apply_action_mask(logits, action_mask):
         device=logits.device,
     )
 
-    mask_tensor = mask_tensor.unsqueeze(0)
-    masked_logits = torch.masked_fill(logits, ~mask_tensor, float("-inf"))
+    while mask_tensor.ndim < logits.ndim:
+        mask_tensor = mask_tensor.unsqueeze(0)
 
-    return masked_logits
+    return logits.masked_fill(
+        ~mask_tensor,
+        float("-inf"),
+    )

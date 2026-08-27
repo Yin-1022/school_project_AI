@@ -1,6 +1,13 @@
+from scripts import action_mask
 import torch
 
 def compute_importance_ratios(target_logits, actions, behavior_log_prob,):
+    if action_mask is not None:
+        target_logits = target_logits.masked_fill(
+            ~action_mask.bool(),
+            float("-inf"),
+        )
+    
     target_log_prob = torch.log_softmax(target_logits, dim=-1)
     target_action_log_prob = torch.gather(
             target_log_prob, dim=-1, index=actions.unsqueeze(-1)

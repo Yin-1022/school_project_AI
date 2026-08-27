@@ -102,6 +102,7 @@ def build_unrolls(data, unroll_length=20, has_behavior_probs=False):
                 "bootstrap_frames": np.zeros_like(data["frames"][0]),
                 "bootstrap_extra": np.zeros_like(data["extra"][0]),
                 "valid_mask": valid_mask,
+                "action_mask": pad_first_dim(data["action_mask"][start:start + valid_length], unroll_length),
                 "bootstrap_valid": np.int64(bootstrap_valid),
             }
 
@@ -138,6 +139,7 @@ def build_unrolls(data, unroll_length=20, has_behavior_probs=False):
                 "bootstrap_frames": data["frames"][start + unroll_length],
                 "bootstrap_extra": data["extra"][start + unroll_length],
                 "valid_mask": valid_mask,
+                "action_mask": data["action_mask"][start:start + unroll_length],
                 "bootstrap_valid": np.int64(bootstrap_valid),
             }
             if has_behavior_probs:

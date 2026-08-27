@@ -399,6 +399,8 @@ def main():
                 "ue_boss_hit_count": 0,
                 "ue_player_hit_count": 0,
                 "ue_episode_done": False,
+
+                "action_mask": action_mask.copy(),
             }
 
             if len(rollout_buffer) >= ROLLOUT_SAVE_EVERY or ue_episode_done:

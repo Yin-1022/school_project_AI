@@ -51,6 +51,14 @@ def train_impala_batch(model, optimizer, batch_unrolls, max_grad_norm=40.0):
         axis=0,
     )
 
+    action_mask = np.stack(
+        [
+            u["action_mask"]
+            for u in batch_unrolls
+        ],
+        axis=0,
+    )
+
     batch_size = frames.shape[0]
     unroll_length = frames.shape[1]
 
@@ -60,6 +68,7 @@ def train_impala_batch(model, optimizer, batch_unrolls, max_grad_norm=40.0):
     behavior_log_prob_tensor = torch.from_numpy(behavior_log_prob).float()
     done_tensor = torch.from_numpy(done).float()
     valid_mask_tensor = torch.from_numpy(valid_mask).float()
+    action_mask_tensor = torch.from_numpy(action_mask).bool()
 
     flat_frames = frames.reshape(batch_size * unroll_length,*frames.shape[2:],)
     flat_extra = extra.reshape(batch_size * unroll_length,-1)
@@ -87,11 +96,17 @@ def train_impala_batch(model, optimizer, batch_unrolls, max_grad_norm=40.0):
     logits = flat_logits.reshape(batch_size, unroll_length, -1)
     values = flat_values.reshape(batch_size, unroll_length,)
 
+    masked_logits = logits.masked_fill(
+        ~action_mask_tensor.unsqueeze(-1),
+        float("-inf"),
+    )
+
     target_action_log_prob, _, rhos = (
         compute_importance_ratios(
-            target_logits=logits,
+            target_logits=masked_logits,
             actions=action_tensor,
             behavior_log_prob=behavior_log_prob_tensor,
+            action_mask=action_mask_tensor,
         )
     )
 
@@ -122,7 +137,7 @@ def train_impala_batch(model, optimizer, batch_unrolls, max_grad_norm=40.0):
     )
 
     losses = compute_impala_loss(
-        target_logits=logits,
+        target_logits=masked_logits,
         target_action_log_prob=target_action_log_prob,
         values=values,
         vs=vs,
