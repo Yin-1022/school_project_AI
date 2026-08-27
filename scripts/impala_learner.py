@@ -97,7 +97,7 @@ def train_impala_batch(model, optimizer, batch_unrolls, max_grad_norm=40.0):
     values = flat_values.reshape(batch_size, unroll_length,)
 
     masked_logits = logits.masked_fill(
-        ~action_mask_tensor.unsqueeze(-1),
+        ~action_mask_tensor,
         float("-inf"),
     )
 
@@ -106,7 +106,6 @@ def train_impala_batch(model, optimizer, batch_unrolls, max_grad_norm=40.0):
             target_logits=masked_logits,
             actions=action_tensor,
             behavior_log_prob=behavior_log_prob_tensor,
-            action_mask=action_mask_tensor,
         )
     )
 

@@ -14,6 +14,27 @@ def pad_first_dim(array, target_length):
     padding = np.zeros(padding_shape, dtype=array.dtype)
     return np.concatenate([array, padding], axis=0)
 
+def pad_action_mask(array, target_length):
+    current_length = len(array)
+
+    if current_length >= target_length:
+        return array[:target_length]
+
+    padding_shape = (
+        target_length - current_length,
+        *array.shape[1:],
+    )
+
+    padding = np.ones(
+        padding_shape,
+        dtype=np.bool_,
+    )
+
+    return np.concatenate(
+        [array, padding],
+        axis=0,
+    )
+
 def compute_behavior_log_prob(probs, proposed_action_id):
     rows = np.arange(len(proposed_action_id))
     action_probs = probs[rows, proposed_action_id]
@@ -102,7 +123,7 @@ def build_unrolls(data, unroll_length=20, has_behavior_probs=False):
                 "bootstrap_frames": np.zeros_like(data["frames"][0]),
                 "bootstrap_extra": np.zeros_like(data["extra"][0]),
                 "valid_mask": valid_mask,
-                "action_mask": pad_first_dim(data["action_mask"][start:start + valid_length], unroll_length),
+                "action_mask": pad_action_mask(data["action_mask"][start:start + valid_length], unroll_length),
                 "bootstrap_valid": np.int64(bootstrap_valid),
             }
 

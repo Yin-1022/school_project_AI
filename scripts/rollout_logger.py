@@ -36,7 +36,7 @@ def append_rollout_step(buffer, frames, extra, logits, probs, behavior_probs,
         "ue_boss_hit_count": np.int64(ue_boss_hit_count),
         "ue_player_hit_count": np.int64(ue_player_hit_count),
         "ue_episode_done": np.int64(1 if ue_episode_done else 0),
-        "action_mask": np.asarray(action_mask, dtype=np.bool),
+        "action_mask": np.asarray(action_mask, dtype=np.bool_),
         # "value": np.float32(
         #         value.detach().cpu().item() if hasattr(value, "detach") else value
         #     ),
@@ -196,6 +196,7 @@ def append_cached_step(rollout_buffer, cache, done=0):
         reward_low=rewards["low_reward"],
 
         done=done,
+        action_mask=cache["action_mask"],
     )
 
     return True
