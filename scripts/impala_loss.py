@@ -12,8 +12,8 @@ def compute_impala_loss(target_logits, target_action_log_prob, values, vs, pg_ad
 
     log_probs = torch.log_softmax(target_logits, dim=-1)
     probs = torch.softmax(target_logits, dim=-1)
-    entropy_terms = torch.where(probs > 0, probs * log_probs, torch.zeros_like(probs))
-    entropy_per_step = -entropy_terms.sum(dim=-1)
+    safe_log_probs = torch.where(torch.isfinite(log_probs), log_probs, torch.zeros_like(log_probs))
+    entropy_per_step = -(probs * safe_log_probs).sum(dim=-1)
     entropy = (entropy_per_step * valid_mask).sum() / valid_count
 
     total_loss = policy_loss + value_coef * value_loss - entropy_coef * entropy

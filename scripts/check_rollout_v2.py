@@ -1,7 +1,6 @@
 import numpy as np
 from pathlib import Path
 from reward_priority import resolve_priority_reward
-from scripts.constant import ACTION_ID_TO_NAME
 
 ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
 PRIORITY_NAMES = {
@@ -38,17 +37,6 @@ def main() -> None:
             f"{key:<24} "
             f"shape={data[key].shape} "
             f"dtype={data[key].dtype}"
-        )
-
-    if "action_mask" in data.files:
-        source_action_mask = data["action_mask"]
-    else:
-        source_action_mask = np.ones(
-            (
-                len(data["proposed_action_id"]),
-                len(ACTION_ID_TO_NAME),
-            ),
-            dtype=np.bool_,
         )
 
     print("\n===== Rollout Steps =====")
