@@ -1,7 +1,7 @@
 import cv2
 from pathlib import Path
 import collections
-from scripts.action_mask import build_action_mask
+from action_mask import build_action_mask
 import torch
 import numpy as np
 from presence_data import save_presence_sample

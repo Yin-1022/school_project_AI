@@ -25,7 +25,7 @@ def infer_action(frames, extra, model, sample=False, action_mask=None):
         else:
             masked_logits = logits
 
-        probs = torch.softmax(logits, dim=1)
+        probs = torch.softmax(masked_logits, dim=1)
 
     if sample:
         action_id = torch.multinomial(probs, num_samples=1).item()
@@ -90,7 +90,5 @@ def apply_action_mask(logits, action_mask):
 
     mask_tensor = mask_tensor.unsqueeze(0)
     masked_logits = torch.masked_fill(logits, ~mask_tensor, float("-inf"))
-
-    probs = torch.softmax(masked_logits, dim=-1)
 
     return masked_logits
