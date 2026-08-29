@@ -2,11 +2,10 @@ import torch
 import numpy as np
 from pathlib import Path
 
-from constant import ACTION_ID_TO_NAME
+from constant import ACTION_ID_TO_NAME, ROLLOUT_DIR
 from check_masked_impala import find_latest_masked_rollout
 
 BATCH_UNROLLS = 1
-ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
 
 ACTION_NAME_TO_ID = {
     name: action_id
@@ -14,113 +13,232 @@ ACTION_NAME_TO_ID = {
     in ACTION_ID_TO_NAME.items()
 }
 
+semantic_action_ids = [
+    ACTION_NAME_TO_ID[
+        "SearchTurnLeft"
+    ],
+    ACTION_NAME_TO_ID[
+        "SearchTurnRight"
+    ],
+    ACTION_NAME_TO_ID[
+        "PatrolStepLeft"
+    ],
+    ACTION_NAME_TO_ID[
+        "PatrolStepRight"
+    ],
+]
+
 def safe_mean(values):
     if len(values) == 0:
         return 0.0
     return float(values.mean())
 
-def main() -> None:
-    path = find_latest_masked_rollout()
-    
-    print(f"loading: {path}")
-    
-    data = np.load(
-        path,
-        allow_pickle=False,
-    )
+def analyze_rollout_group(files, has_action_mask):
+    num_actions = len(ACTION_ID_TO_NAME)
 
-    # Intervention rate
-    proposed = data["proposed_action_id"]
-    final = data["final_action_id"]
+    transition_count = 0
+    intervention_count = 0
 
-    intervened = proposed != final
-    intervention_rate = intervened.mean()
+    proposed_count = np.zeros(num_actions, dtype=np.int64)
+    final_count = np.zeros(num_actions, dtype=np.int64)
 
-    # Mask active rate
-    action_mask = data["action_mask"].astype(bool)
-    mask_active = (~action_mask).any(axis=1)
+    # Post-Mask only
+    mask_active_count = 0
+    masked_slot_count = 0
 
-    mask_active_rate = mask_active.mean()
+    masked_action_counts = np.zeros(num_actions, dtype=np.int64)
+    masked_mass_sum = 0.0
+    masked_mass_active_sum = 0.0
+    max_masked_mass = 0.0
 
-    # How many actions masked per timestep
-    masked_action_count = (~action_mask).sum(axis=1)
-    avg_masked_action_count = masked_action_count.mean()
-    avg_masked_when_active = masked_action_count[mask_active].mean()
+    intervention_masked_count = 0
+    intervention_unmasked_count = 0
 
-    # Masked Probability Mass
-    logits = torch.from_numpy(data["logits"]).float()
-    raw_probs = torch.softmax(logits, dim=-1).numpy()
+    masked_transition_count = 0
+    unmasked_transition_count = 0
 
-    illegal = ~action_mask
-    masked_prob_mass = (raw_probs * illegal).sum(axis=1)
+    semantic_transition_count = 0
+    semantic_raw_mass_sum = 0.0
 
-    mean_masked_mass = masked_prob_mass.mean()
-    mean_masked_mass_when_active = masked_prob_mass[mask_active].mean()
-    max_masked_mass = masked_prob_mass.max()
+    #File reading
+    for path in files:
+        with np.load(path, allow_pickle=False) as data:
+            proposed = data["proposed_action_id"].astype(np.int64)
+            final = data["final_action_id"].astype(np.int64)
+            n = len(proposed)
 
-    # Masked Action Distribution
-    mask_count = (~action_mask).sum(axis=0)
-    mask_count_dict = {
-        ACTION_ID_TO_NAME[i]: int(mask_count[i])
-        for i in range(len(mask_count))
+            transition_count += n
+
+            intervened = proposed != final
+            intervention_count += intervened.sum()
+
+            proposed_count += np.bincount(proposed, minlength=num_actions)
+            final_count += np.bincount(final, minlength=num_actions)
+
+            if has_action_mask:
+                action_mask = data["action_mask"].astype(bool)
+
+                illegal = ~action_mask
+                mask_active = illegal.any(axis=1)
+
+                current_mask_active_count = int(mask_active.sum())
+                mask_active_count += current_mask_active_count
+
+                unmasked_transition_count += (n-current_mask_active_count)
+
+                masked_slot_count += int(illegal.sum())
+                masked_action_counts += illegal.sum(axis=0)
+
+                # Raw policy probabilities
+                logits = torch.from_numpy(data["logits"].astype(np.float32))
+                raw_probs = torch.softmax(logits, dim=-1).numpy()
+
+                # Masked Probability Mass
+                masked_prob_mass = (raw_probs * illegal).sum(axis=1)
+                masked_mass_sum += float(masked_prob_mass.sum())
+                masked_mass_active_sum += float(masked_prob_mass[mask_active].sum())
+                if len(masked_prob_mass) > 0:
+                    max_masked_mass = max(max_masked_mass, float(masked_prob_mass.max()))
+
+                # Intervention when mask is active/inactive
+                intervention_masked_count += int(intervened[mask_active].sum())
+                intervention_unmasked_count += int(intervened[~mask_active].sum())
+
+                # Visible-track semantic stats
+                visible = data["visible"]
+                phase = data["phase"]
+
+                semantic_active = (phase == "track") & (visible == 1)
+                semantic_count = int(semantic_active.sum())
+                semantic_transition_count += semantic_count
+
+                # Raw probabilities for Search/Patrol
+                semantic_raw_mass = (raw_probs[:, semantic_action_ids].sum(axis=1))
+                semantic_raw_mass_sum += float(semantic_raw_mass[semantic_active].sum())
+
+    if transition_count == 0:
+        raise ValueError("No transitions found.")
+
+    intervention_rate = intervention_count / transition_count
+    proposed_distribution = proposed_count / transition_count
+    final_distribution = final_count / transition_count
+
+    if has_action_mask:
+        mask_active_rate = mask_active_count / transition_count
+        avg_masked_actions = masked_slot_count / transition_count
+        avg_masked_actions_when_active = masked_slot_count / mask_active_count if mask_active_count > 0 else 0.0
+        mean_masked_mass = masked_mass_sum / transition_count
+        mean_masked_mass_when_active = masked_mass_active_sum / mask_active_count if mask_active_count > 0 else 0.0
+
+        intervention_when_masked = intervention_masked_count / mask_active_count if mask_active_count > 0 else 0.0
+        intervention_when_unmasked = intervention_unmasked_count / unmasked_transition_count if unmasked_transition_count > 0 else 0.0
+
+        semantic_rate = semantic_transition_count / transition_count
+        mean_semantic_raw_mass = semantic_raw_mass_sum / semantic_transition_count if semantic_transition_count > 0 else 0.0
+
+    result = {
+        "file_count": len(files),
+        "transition_count": transition_count,
+        "intervention_count": intervention_count,
+        "intervention_rate": intervention_rate,
+        "proposed_count": proposed_count,
+        "final_count": final_count,
+        "proposed_distribution": proposed_distribution,
+        "final_distribution": final_distribution,
     }
 
-    # Intevention when mask is active/inactive
-    intervention_when_masked = safe_mean(
-        intervened[mask_active]
+    if has_action_mask:
+        result.update({
+            "mask_active_count": mask_active_count,
+            "mask_active_rate": mask_active_rate,
+            "masked_slot_count": masked_slot_count,
+            "avg_masked_actions": avg_masked_actions,
+            "avg_masked_actions_when_active": avg_masked_actions_when_active,
+            "masked_action_counts": masked_action_counts,
+            "mean_masked_mass": mean_masked_mass,
+            "mean_masked_mass_when_active": mean_masked_mass_when_active,
+            "max_masked_mass": max_masked_mass,
+            "intervention_when_masked": intervention_when_masked,
+            "intervention_when_unmasked": intervention_when_unmasked,
+            "semantic_transition_count": semantic_transition_count,
+            "semantic_rate": semantic_rate,
+            "mean_semantic_raw_mass": mean_semantic_raw_mass,
+        })
+
+    return result
+
+def main() -> None:
+    rollout_files = sorted(
+        ROLLOUT_DIR.glob("*.npz")
     )
 
-    intervention_when_unmasked = safe_mean(
-        intervened[~mask_active]
-    )
+    pre_mask_files = []
+    post_mask_files = []
+    
+    print(f"loading: {ROLLOUT_DIR}")
+    
+    for path in rollout_files:
+        data = np.load(
+            path,
+            allow_pickle=False,
+        )
+        if "action_mask" in data:
+            post_mask_files.append(path)
+        else:
+            pre_mask_files.append(path)
 
-    # Check visible + track semantic mask
-    visible = data["visible"]
-    phase = data["phase"]
+    if not pre_mask_files:
+        raise RuntimeError(
+            "No pre-mask rollouts found"
+        )
 
-    semantic_active = (phase == "track") & (visible == 1)
-    semantic_rate = semantic_active.mean()
-    semantic_masked_mass = masked_prob_mass[semantic_active].mean()
+    if not post_mask_files:
+        raise RuntimeError(
+            "No post-mask rollouts found"
+        )
 
-    # Raw semantic actions
-    semantic_action_ids = [
-        ACTION_NAME_TO_ID["SearchTurnLeft"],
-        ACTION_NAME_TO_ID["SearchTurnRight"],
-        ACTION_NAME_TO_ID["PatrolStepLeft"],
-        ACTION_NAME_TO_ID["PatrolStepRight"],
-    ]
-    semantic_raw_mass = (raw_probs[:, semantic_action_ids].sum(axis=1))
-    mean_semantic_raw_mass = safe_mean(semantic_raw_mass[semantic_active])
+    pre_stats = analyze_rollout_group(pre_mask_files, has_action_mask=False)
+    post_stats = analyze_rollout_group(post_mask_files, has_action_mask=True)
 
 
-    print(f"--- Postprocess ---")
-    print(f"Invenvention: {intervened.sum()} / {len(intervened)}")
-    print(f"Intervention Rate: {intervention_rate:.4f}")
+    print(f"--- Action Mask Comparison ---\n")
+    print("Dataset")
+    print("                    PRE   POST")
+    print(f"Files             {pre_stats['file_count']:>5}  {post_stats['file_count']:>5}")
+    print(f"Transitions       {pre_stats['transition_count']:>5}  {post_stats['transition_count']:>5}")
 
-    print(f"\n--- Mask Activity ---")
-    print(f"Mask Active Rate: {mask_active_rate:.4f}")
-    print(f"Avg Masked Action Count: {avg_masked_action_count:.4f}")
-    print(f"Avg Masked Action Count When Active: {avg_masked_when_active:.4f}")
+    print("\nPostprocess")
+    print("                      PRE    POST")
+    print(f"Interventions         ???   {post_stats['intervention_count']:>5}")
+    print(f"Intervention Rate  {pre_stats['intervention_rate']:.4f}  {post_stats['intervention_rate']:.4f}")
+    print(f"Change                     {(post_stats['intervention_rate'] - pre_stats['intervention_rate']):.4f}")
 
-    print(f"\n--- Probability Mass ---")
-    print(f"Mean Masked Probability Mass: {mean_masked_mass:.4f}")
-    print(f"Mean Masked Probability Mass When Active: {mean_masked_mass_when_active:.4f}")
-    print(f"Max Masked Probability Mass: {max_masked_mass:.4f}")
+    print("\n--- Proposed Action Distribution ---\n")
+    print("Action Name            PRE   POST")
+    for action_id, action_name in ACTION_ID_TO_NAME.items():
+        pre_count = pre_stats['proposed_count'][action_id]
+        post_count = post_stats['proposed_count'][action_id]
+        print(f"{action_name:<20} {pre_count:>5}  {post_count:>5}")
 
-    print(f"\n--- Mask By Action ---")
-    print(f"{mask_count_dict}")
+    print("\n--- Final Action Distribution ---\n")
+    print("Action Name            PRE   POST")
+    for action_id, action_name in ACTION_ID_TO_NAME.items():
+        pre_count = pre_stats['final_count'][action_id]
+        post_count = post_stats['final_count'][action_id]
+        print(f"{action_name:<20} {pre_count:>5}  {post_count:>5}")
 
-    print(f"\n--- Intervention By Mask State ---")
-    print(f"Masked active: {intervention_when_masked:.4f}")
-    print(f"Masked inactive: {intervention_when_unmasked:.4f}")
+    print("\n--- Post-mask Diagnostics ---\n")
+    print(f"Mask active rate: {post_stats['mask_active_rate']:.4f}")
+    print(f"Avg masked actions when active: {post_stats['avg_masked_actions_when_active']:.4f}")
+    print(f"Mean masked probability mass: {post_stats['mean_masked_mass']:.4f}")
+    print(f"Mean masked mass when active: {post_stats['mean_masked_mass_when_active']:.4f}")
+    print(f"Max masked mass: {post_stats['max_masked_mass']:.4f}")
 
-    print(f"\n--- Mean total masked mass during visible-track ---")
-    print(f"Mean masked mass during visible-track: {semantic_masked_mass:.4f}")
+    print(f"Intevention | mask active: {post_stats['intervention_when_masked']:.4f}")
+    print(f"Intevention | mask inactive: {post_stats['intervention_when_unmasked']:.4f}")
 
-    print(f"\n--- Visible Track Semantic Mask ---")
-    print(f"Visible-track transitions: {semantic_active.sum()}")
-    print(f"Visible-track rate: {semantic_rate:.4f}")
-    print(f"Raw Search/Patrol probability mass: {mean_semantic_raw_mass:.4f}")
+    print(f"Visible-track rate: {post_stats['semantic_rate']:.4f}")
+    print(f"Raw Search/Patrol mass: {post_stats['mean_semantic_raw_mass']:.4f}")
     
 if __name__ == "__main__":
     main()
