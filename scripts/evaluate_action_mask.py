@@ -187,6 +187,14 @@ def main() -> None:
         else:
             pre_mask_files.append(path)
 
+    print("\nPRE files:")
+    for path in pre_mask_files: 
+        with np.load(path, allow_pickle=False) as data:
+            print(
+                path.name,
+                len(data["proposed_action_id"]),
+            )
+
     if not pre_mask_files:
         raise RuntimeError(
             "No pre-mask rollouts found"
@@ -207,18 +215,19 @@ def main() -> None:
     print(f"Files             {pre_stats['file_count']:>5}  {post_stats['file_count']:>5}")
     print(f"Transitions       {pre_stats['transition_count']:>5}  {post_stats['transition_count']:>5}")
 
+    delta_pp = (post_stats["intervention_rate"] - pre_stats["intervention_rate"]) * 100
     print("\nPostprocess")
     print("                      PRE    POST")
-    print(f"Interventions         ???   {post_stats['intervention_count']:>5}")
+    print(f"Interventions       {pre_stats['intervention_count']:>5}   {post_stats['intervention_count']:>5}")
     print(f"Intervention Rate  {pre_stats['intervention_rate']:.4f}  {post_stats['intervention_rate']:.4f}")
-    print(f"Change                     {(post_stats['intervention_rate'] - pre_stats['intervention_rate']):.4f}")
+    print(f"Change                     {delta_pp:+.2f} pp")
 
     print("\n--- Proposed Action Distribution ---\n")
-    print("Action Name            PRE   POST")
+    print("Action Name            PRE       POST")
     for action_id, action_name in ACTION_ID_TO_NAME.items():
-        pre_count = pre_stats['proposed_count'][action_id]
-        post_count = post_stats['proposed_count'][action_id]
-        print(f"{action_name:<20} {pre_count:>5}  {post_count:>5}")
+        pre_dist = pre_stats["proposed_distribution"][action_id]
+        post_dist = post_stats["proposed_distribution"][action_id]
+        print(f"{action_name:<20} {pre_dist:>7.2%}  {post_dist:>7.2%}")
 
     print("\n--- Final Action Distribution ---\n")
     print("Action Name            PRE   POST")
