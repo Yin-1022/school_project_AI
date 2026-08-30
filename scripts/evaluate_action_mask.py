@@ -1,9 +1,7 @@
 import torch
 import numpy as np
-from pathlib import Path
 
 from constant import ACTION_ID_TO_NAME, ROLLOUT_DIR
-from check_masked_impala import find_latest_masked_rollout
 
 BATCH_UNROLLS = 1
 
@@ -42,6 +40,12 @@ def analyze_rollout_group(files, has_action_mask):
     proposed_count = np.zeros(num_actions, dtype=np.int64)
     final_count = np.zeros(num_actions, dtype=np.int64)
 
+    phase_counts = {
+        "track": 0,
+        "reacq": 0,
+        "patrol": 0,
+    }
+
     # Post-Mask only
     mask_active_count = 0
     masked_slot_count = 0
@@ -74,6 +78,10 @@ def analyze_rollout_group(files, has_action_mask):
 
             proposed_count += np.bincount(proposed, minlength=num_actions)
             final_count += np.bincount(final, minlength=num_actions)
+
+            phase = data["phase"]
+            for phase_name in phase_counts:
+                phase_counts[phase_name] += int((phase == phase_name).sum())
 
             if has_action_mask:
                 action_mask = data["action_mask"].astype(bool)
@@ -122,6 +130,10 @@ def analyze_rollout_group(files, has_action_mask):
     intervention_rate = intervention_count / transition_count
     proposed_distribution = proposed_count / transition_count
     final_distribution = final_count / transition_count
+    phase_distribution = {
+        phase_name: count / transition_count
+        for phase_name, count in phase_counts.items()
+    }
 
     if has_action_mask:
         mask_active_rate = mask_active_count / transition_count
@@ -145,6 +157,8 @@ def analyze_rollout_group(files, has_action_mask):
         "final_count": final_count,
         "proposed_distribution": proposed_distribution,
         "final_distribution": final_distribution,
+        "phase_counts": phase_counts,
+        "phase_distribution": phase_distribution,
     }
 
     if has_action_mask:
@@ -178,14 +192,14 @@ def main() -> None:
     print(f"loading: {ROLLOUT_DIR}")
     
     for path in rollout_files:
-        data = np.load(
+        with np.load(
             path,
             allow_pickle=False,
-        )
-        if "action_mask" in data:
-            post_mask_files.append(path)
-        else:
-            pre_mask_files.append(path)
+        ) as data:
+            if "action_mask" in data.files:
+                post_mask_files.append(path)
+            else:
+                pre_mask_files.append(path)
 
     print("\nPRE files:")
     for path in pre_mask_files: 
@@ -230,11 +244,22 @@ def main() -> None:
         print(f"{action_name:<20} {pre_dist:>7.2%}  {post_dist:>7.2%}")
 
     print("\n--- Final Action Distribution ---\n")
-    print("Action Name            PRE   POST")
+    print("Action Name            PRE       POST")
+
     for action_id, action_name in ACTION_ID_TO_NAME.items():
-        pre_count = pre_stats['final_count'][action_id]
-        post_count = post_stats['final_count'][action_id]
-        print(f"{action_name:<20} {pre_count:>5}  {post_count:>5}")
+        pre_dist = pre_stats["final_distribution"][action_id]
+        post_dist = post_stats["final_distribution"][action_id]
+        print(
+            f"{action_name:<20} "
+            f"{pre_dist:>7.2%}  "
+            f"{post_dist:>7.2%}"
+        )
+
+    print("\n--- Phase Distribution ---\n")
+    print("Phase               PRE     POST")
+    for phase_name, pre_dist in pre_stats["phase_distribution"].items():
+        post_dist = post_stats["phase_distribution"][phase_name]
+        print(f"{phase_name:<15} {pre_dist:>7.2%}  {post_dist:>7.2%}")
 
     print("\n--- Post-mask Diagnostics ---\n")
     print(f"Mask active rate: {post_stats['mask_active_rate']:.4f}")
