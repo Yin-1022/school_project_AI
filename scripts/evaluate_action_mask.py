@@ -92,6 +92,11 @@ def analyze_rollout_group(files, has_action_mask):
                 phase_counts[phase_name] += int(phase_mask.sum())
                 phase_intervention_counts[phase_name] += int(intervened[phase_mask].sum())
 
+            visible = data["visible"]
+            visible_track = ((phase == "track")& (visible == 1))
+            visible_track_count += int(visible_track.sum())
+            visible_track_intervention_count += int(intervened[visible_track].sum())
+
             if has_action_mask:
                 action_mask = data["action_mask"].astype(bool)
 
@@ -122,13 +127,6 @@ def analyze_rollout_group(files, has_action_mask):
                 intervention_unmasked_count += int(intervened[~mask_active].sum())
 
                 # Visible-track semantic stats
-                visible = data["visible"]
-                phase = data["phase"]
-
-                visible_track = (phase == "track") & (visible == 1)
-                visible_track_count += int(visible_track.sum())
-                visible_track_intervention_count += int(intervened[visible_track].sum())
-
                 semantic_active = (phase == "track") & (visible == 1)
                 semantic_count = int(semantic_active.sum())
                 semantic_transition_count += semantic_count
@@ -296,10 +294,22 @@ def main() -> None:
         post_rate = post_stats["phase_intervention_rates"][phase_name]
         print(f"{phase_name:<15} {pre_rate:>7.2%}  {post_rate:>7.2%}")
 
-    print("\n--- Visible Track Intervention Rate ---\n")
-    print("Visible Track Rate")
-    print(f"PRE:  {pre_stats['visible_track_intervention_rate']:.4f}")
-    print(f"POST: {post_stats['visible_track_intervention_rate']:.4f}")
+    print("\n--- Visible-Track Intervention Rate ---\n")
+    print(
+        "PRE:  "
+        f"{pre_stats['visible_track_intervention_count']}"
+        "/"
+        f"{pre_stats['visible_track_count']} "
+        f"({pre_stats['visible_track_intervention_rate']:.2%})"
+    )
+
+    print(
+        "POST: "
+        f"{post_stats['visible_track_intervention_count']}"
+        "/"
+        f"{post_stats['visible_track_count']} "
+        f"({post_stats['visible_track_intervention_rate']:.2%})"
+    )
 
     print("\n--- Post-mask Diagnostics ---\n")
     print(f"Mask active rate: {post_stats['mask_active_rate']:.4f}")
