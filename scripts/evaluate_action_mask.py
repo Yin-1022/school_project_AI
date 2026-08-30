@@ -3,8 +3,6 @@ import numpy as np
 
 from constant import ACTION_ID_TO_NAME, ROLLOUT_DIR
 
-BATCH_UNROLLS = 1
-
 ACTION_NAME_TO_ID = {
     name: action_id
     for action_id, name
@@ -46,6 +44,15 @@ def analyze_rollout_group(files, has_action_mask):
         "patrol": 0,
     }
 
+    phase_intervention_counts = {
+        "track": 0,
+        "reacq": 0,
+        "patrol": 0,
+    }
+
+    visible_track_count = 0
+    visible_track_intervention_count = 0
+
     # Post-Mask only
     mask_active_count = 0
     masked_slot_count = 0
@@ -81,7 +88,9 @@ def analyze_rollout_group(files, has_action_mask):
 
             phase = data["phase"]
             for phase_name in phase_counts:
-                phase_counts[phase_name] += int((phase == phase_name).sum())
+                phase_mask = phase == phase_name
+                phase_counts[phase_name] += int(phase_mask.sum())
+                phase_intervention_counts[phase_name] += int(intervened[phase_mask].sum())
 
             if has_action_mask:
                 action_mask = data["action_mask"].astype(bool)
@@ -116,6 +125,10 @@ def analyze_rollout_group(files, has_action_mask):
                 visible = data["visible"]
                 phase = data["phase"]
 
+                visible_track = (phase == "track") & (visible == 1)
+                visible_track_count += int(visible_track.sum())
+                visible_track_intervention_count += int(intervened[visible_track].sum())
+
                 semantic_active = (phase == "track") & (visible == 1)
                 semantic_count = int(semantic_active.sum())
                 semantic_transition_count += semantic_count
@@ -134,6 +147,17 @@ def analyze_rollout_group(files, has_action_mask):
         phase_name: count / transition_count
         for phase_name, count in phase_counts.items()
     }
+    phase_intervention_rates = {
+        phase_name: (
+            phase_intervention_counts[phase_name]/ phase_counts[phase_name]
+            if phase_counts[phase_name] > 0 else 0.0
+        )
+        for phase_name in phase_counts
+    }
+    visible_track_intervention_rate = (
+        visible_track_intervention_count/ visible_track_count
+        if visible_track_count > 0 else 0.0
+    )
 
     if has_action_mask:
         mask_active_rate = mask_active_count / transition_count
@@ -159,6 +183,11 @@ def analyze_rollout_group(files, has_action_mask):
         "final_distribution": final_distribution,
         "phase_counts": phase_counts,
         "phase_distribution": phase_distribution,
+        "phase_intervention_counts": phase_intervention_counts,
+        "phase_intervention_rates": phase_intervention_rates,
+        "visible_track_count": visible_track_count,
+        "visible_track_intervention_count": visible_track_intervention_count,
+        "visible_track_intervention_rate": visible_track_intervention_rate,
     }
 
     if has_action_mask:
@@ -261,6 +290,17 @@ def main() -> None:
         post_dist = post_stats["phase_distribution"][phase_name]
         print(f"{phase_name:<15} {pre_dist:>7.2%}  {post_dist:>7.2%}")
 
+    print("\n--- Phase Intervention Rates ---\n")
+    print("Phase               PRE     POST")
+    for phase_name, pre_rate in pre_stats["phase_intervention_rates"].items():
+        post_rate = post_stats["phase_intervention_rates"][phase_name]
+        print(f"{phase_name:<15} {pre_rate:>7.2%}  {post_rate:>7.2%}")
+
+    print("\n--- Visible Track Intervention Rate ---\n")
+    print("Visible Track Rate")
+    print(f"PRE:  {pre_stats['visible_track_intervention_rate']:.4f}")
+    print(f"POST: {post_stats['visible_track_intervention_rate']:.4f}")
+
     print("\n--- Post-mask Diagnostics ---\n")
     print(f"Mask active rate: {post_stats['mask_active_rate']:.4f}")
     print(f"Avg masked actions when active: {post_stats['avg_masked_actions_when_active']:.4f}")
@@ -268,8 +308,8 @@ def main() -> None:
     print(f"Mean masked mass when active: {post_stats['mean_masked_mass_when_active']:.4f}")
     print(f"Max masked mass: {post_stats['max_masked_mass']:.4f}")
 
-    print(f"Intevention | mask active: {post_stats['intervention_when_masked']:.4f}")
-    print(f"Intevention | mask inactive: {post_stats['intervention_when_unmasked']:.4f}")
+    print(f"Intervention | mask active: {post_stats['intervention_when_masked']:.4f}")
+    print(f"Intervention | mask inactive: {post_stats['intervention_when_unmasked']:.4f}")
 
     print(f"Visible-track rate: {post_stats['semantic_rate']:.4f}")
     print(f"Raw Search/Patrol mass: {post_stats['mean_semantic_raw_mass']:.4f}")
