@@ -26,6 +26,10 @@ TEACHER_EVADEBACK_PROB = 0.45
 
 POLICY_MODE = "bc"
 
+ACTION_MASK_MODE = "masked"
+# "baseline"
+# "masked"
+
 ROLLOUT_SAVE_EVERY = 1000
 if POLICY_MODE == "bc":
     ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")

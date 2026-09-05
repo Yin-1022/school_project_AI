@@ -184,7 +184,7 @@ def apply_action_with_state(pol_state, proposed_action, topk_actions, frame_id_e
             pol_state["last_proposed_action"] = action
 
     if action == "EvadeBack" and not is_ready(pol_state, "EvadeBack", frame_id_end):
-        action = "Retreat"
+        action = "Hold"
     
     if action in {"SearchTurnLeft", "SearchTurnRight"} and not is_ready(pol_state, "SearchTurn", frame_id_end):
         action = last_action if frame_id_end < hold_until_frame else "Hold"
@@ -293,6 +293,11 @@ def apply_action_with_state(pol_state, proposed_action, topk_actions, frame_id_e
         arm_cooldown(pol_state, "SearchTurn", fire_frame, CD_TURN)
     elif action == "PatrolStepLeft" or action == "PatrolStepRight":
         arm_cooldown(pol_state, "PatrolStep", fire_frame, CD_PATROL)
+
+    if action == "Retreat":
+        raise RuntimeError(
+            "Retreat is disabled in current game version"
+        )
 
     return action, pol_state, fire_frame
 

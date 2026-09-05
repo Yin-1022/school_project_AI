@@ -8,8 +8,24 @@ ACTION_NAME_TO_ID = {
     for action_id, name in ACTION_ID_TO_NAME.items()
 }
 
-def build_action_mask(pol_state, frame_id_end, info):
+def build_action_mask(pol_state, frame_id_end, info, mode="masked"):
     mask = np.ones(len(ACTION_ID_TO_NAME), dtype=np.bool_,)
+
+    # 永久 legality：
+    # 新遊戲版本已經不存在 Retreat
+    mask[ACTION_NAME_TO_ID["Retreat"]] = False
+
+    if mode == "baseline":
+        if not mask.any():
+            raise RuntimeError(
+                "Action mask contains no valid actions"
+            )
+        return mask
+
+    if mode != "masked":
+        raise ValueError(
+            f"Unknown action mask mode: {mode}"
+        )
 
     if not is_ready(pol_state, "EvadeBack", frame_id_end):
         mask[ACTION_NAME_TO_ID["EvadeBack"]] = False

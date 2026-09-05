@@ -24,6 +24,10 @@ semantic_action_ids = [
     ],
 ]
 
+ROLLOUT_PROFILE = "eval"
+# "eval"
+# "train"
+
 def safe_mean(values):
     if len(values) == 0:
         return 0.0

@@ -22,6 +22,7 @@ from constant import (
     ACTION_ID_TO_NAME,
     ROLLOUT_SAVE_EVERY,
     POLICY_MODE,
+    ACTION_MASK_MODE,
     BLOCKING_ACTIONS
 )
 from behavior_policy import compute_behavior_probs
@@ -50,7 +51,7 @@ UE_EVENT_STATE = {
     "episode_done_flag": False,
 }
 UE_EVENT_LOCK = threading.Lock()
-PRESENCE_RECORD_MODE = False
+PRESENCE_RECORD_MODE = True
 PRESENCE_VIDEO_DIR = Path("data/presence_videos")
 
 def main():
@@ -304,7 +305,7 @@ def main():
                 )
                 last_step_cache = None
 
-            action_mask = build_action_mask(pol_state, frame_id_end, info)
+            action_mask = build_action_mask(pol_state, frame_id_end, info, mode=ACTION_MASK_MODE)
 
             if POLICY_MODE == "bc":
                 bc_out = infer_action(frames, extra_tensor, model, sample=True, action_mask=action_mask)
