@@ -24,10 +24,6 @@ semantic_action_ids = [
     ],
 ]
 
-ROLLOUT_PROFILE = "eval"
-# "eval"
-# "train"
-
 def safe_mean(values):
     if len(values) == 0:
         return 0.0
@@ -78,6 +74,27 @@ def analyze_rollout_group(files, has_action_mask):
     #File reading
     for path in files:
         with np.load(path, allow_pickle=False) as data:
+            if "action_mask_mode" not in data.files:
+                continue
+
+            if data["map_version"].item() != "new_map_v1":
+                continue
+
+            if (
+                data["action_space_version"].item()
+                != "no_retreat_v1"
+            ):
+                continue
+
+            mode = data["action_mask_mode"].item()
+
+            if mode == "baseline":
+                baseline_files.append(path)
+
+            elif mode == "masked":
+                masked_files.append(path)
+
+
             proposed = data["proposed_action_id"].astype(np.int64)
             final = data["final_action_id"].astype(np.int64)
             n = len(proposed)

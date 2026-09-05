@@ -26,9 +26,17 @@ TEACHER_EVADEBACK_PROB = 0.45
 
 POLICY_MODE = "bc"
 
-ACTION_MASK_MODE = "masked"
+ACTION_MASK_MODE = "baseline"
 # "baseline"
 # "masked"
+
+MAP_VERSION = "new_map_v1"
+
+ACTION_SPACE_VERSION = "no_retreat_v1"
+
+ROLLOUT_PROFILE = "eval"
+# "eval"
+# "train"
 
 ROLLOUT_SAVE_EVERY = 1000
 if POLICY_MODE == "bc":
