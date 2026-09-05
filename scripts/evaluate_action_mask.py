@@ -29,7 +29,7 @@ def safe_mean(values):
         return 0.0
     return float(values.mean())
 
-def analyze_rollout_group(files, has_action_mask):
+def analyze_rollout_group(files, is_analyzing_mask):
     num_actions = len(ACTION_ID_TO_NAME)
 
     transition_count = 0
@@ -53,7 +53,7 @@ def analyze_rollout_group(files, has_action_mask):
     visible_track_count = 0
     visible_track_intervention_count = 0
 
-    # Post-Mask only
+    # Masked only
     mask_active_count = 0
     masked_slot_count = 0
 
@@ -74,27 +74,6 @@ def analyze_rollout_group(files, has_action_mask):
     #File reading
     for path in files:
         with np.load(path, allow_pickle=False) as data:
-            if "action_mask_mode" not in data.files:
-                continue
-
-            if data["map_version"].item() != "new_map_v1":
-                continue
-
-            if (
-                data["action_space_version"].item()
-                != "no_retreat_v1"
-            ):
-                continue
-
-            mode = data["action_mask_mode"].item()
-
-            if mode == "baseline":
-                baseline_files.append(path)
-
-            elif mode == "masked":
-                masked_files.append(path)
-
-
             proposed = data["proposed_action_id"].astype(np.int64)
             final = data["final_action_id"].astype(np.int64)
             n = len(proposed)
@@ -118,7 +97,7 @@ def analyze_rollout_group(files, has_action_mask):
             visible_track_count += int(visible_track.sum())
             visible_track_intervention_count += int(intervened[visible_track].sum())
 
-            if has_action_mask:
+            if is_analyzing_mask:
                 action_mask = data["action_mask"].astype(bool)
 
                 illegal = ~action_mask
@@ -178,7 +157,7 @@ def analyze_rollout_group(files, has_action_mask):
         if visible_track_count > 0 else 0.0
     )
 
-    if has_action_mask:
+    if is_analyzing_mask:
         mask_active_rate = mask_active_count / transition_count
         avg_masked_actions = masked_slot_count / transition_count
         avg_masked_actions_when_active = masked_slot_count / mask_active_count if mask_active_count > 0 else 0.0
@@ -209,7 +188,7 @@ def analyze_rollout_group(files, has_action_mask):
         "visible_track_intervention_rate": visible_track_intervention_rate,
     }
 
-    if has_action_mask:
+    if is_analyzing_mask:
         result.update({
             "mask_active_count": mask_active_count,
             "mask_active_rate": mask_active_rate,
@@ -234,8 +213,8 @@ def main() -> None:
         ROLLOUT_DIR.glob("*.npz")
     )
 
-    pre_mask_files = []
-    post_mask_files = []
+    baseline_files = []
+    masked_files = []
     
     print(f"loading: {ROLLOUT_DIR}")
     
@@ -244,106 +223,124 @@ def main() -> None:
             path,
             allow_pickle=False,
         ) as data:
-            if "action_mask" in data.files:
-                post_mask_files.append(path)
-            else:
-                pre_mask_files.append(path)
+            if "action_mask_mode" not in data:
+                continue
+            if "rollout_profile" not in data:
+                continue
+            if "map_version" not in data:
+                continue
+            if "action_space_version" not in data:
+                continue
 
-    print("\nPRE files:")
-    for path in pre_mask_files: 
+            if data["rollout_profile"] != "eval":
+                continue
+            if data["map_version"] != "new_map_v1":
+                continue
+            if data["action_space_version"] != "no_retreat_v1":
+                continue
+
+            mode = data["action_mask_mode"].item()
+
+            if mode == "baseline":
+                baseline_files.append(path)
+            elif mode == "masked":
+                masked_files.append(path)
+
+    print("\nBaseline files:")
+    for path in baseline_files: 
         with np.load(path, allow_pickle=False) as data:
             print(
                 path.name,
                 len(data["proposed_action_id"]),
             )
 
-    if not pre_mask_files:
+    if not baseline_files:
         raise RuntimeError(
-            "No pre-mask rollouts found"
+            "No baseline rollouts found"
         )
 
-    if not post_mask_files:
+    if not masked_files:
         raise RuntimeError(
-            "No post-mask rollouts found"
+            "No masked rollouts found"
         )
 
-    pre_stats = analyze_rollout_group(pre_mask_files, has_action_mask=False)
-    post_stats = analyze_rollout_group(post_mask_files, has_action_mask=True)
+    baseline_stats = analyze_rollout_group(baseline_files, is_analyzing_mask=False)
+    masked_stats = analyze_rollout_group(masked_files, is_analyzing_mask=True)
 
 
     print(f"--- Action Mask Comparison ---\n")
     print("Dataset")
-    print("                    PRE   POST")
-    print(f"Files             {pre_stats['file_count']:>5}  {post_stats['file_count']:>5}")
-    print(f"Transitions       {pre_stats['transition_count']:>5}  {post_stats['transition_count']:>5}")
+    print("                    BASELINE   MASKED")
+    print(f"Files             {baseline_stats['file_count']:>5}  {masked_stats['file_count']:>5}")
+    print(f"Transitions       {baseline_stats['transition_count']:>5}  {masked_stats['transition_count']:>5}")
 
-    delta_pp = (post_stats["intervention_rate"] - pre_stats["intervention_rate"]) * 100
+    delta_pp = (masked_stats["intervention_rate"] - baseline_stats["intervention_rate"]) * 100
     print("\nPostprocess")
-    print("                      PRE    POST")
-    print(f"Interventions       {pre_stats['intervention_count']:>5}   {post_stats['intervention_count']:>5}")
-    print(f"Intervention Rate  {pre_stats['intervention_rate']:.4f}  {post_stats['intervention_rate']:.4f}")
+    print("                      BASELINE    MASKED")
+    print(f"Interventions       {baseline_stats['intervention_count']:>5}   {masked_stats['intervention_count']:>5}")
+    print(f"Intervention Rate  {baseline_stats['intervention_rate']:.4f}  {masked_stats['intervention_rate']:.4f}")
     print(f"Change                     {delta_pp:+.2f} pp")
 
     print("\n--- Proposed Action Distribution ---\n")
-    print("Action Name            PRE       POST")
+    print("Action Name            BASELINE   MASKED")
     for action_id, action_name in ACTION_ID_TO_NAME.items():
-        pre_dist = pre_stats["proposed_distribution"][action_id]
-        post_dist = post_stats["proposed_distribution"][action_id]
-        print(f"{action_name:<20} {pre_dist:>7.2%}  {post_dist:>7.2%}")
+        baseline_dist = baseline_stats["proposed_distribution"][action_id]
+        masked_dist = masked_stats["proposed_distribution"][action_id]
+        print(f"{action_name:<20} {baseline_dist:>7.2%}  {masked_dist:>7.2%}")
 
     print("\n--- Final Action Distribution ---\n")
-    print("Action Name            PRE       POST")
+    print("Action Name            BASELINE   MASKED")
 
     for action_id, action_name in ACTION_ID_TO_NAME.items():
-        pre_dist = pre_stats["final_distribution"][action_id]
-        post_dist = post_stats["final_distribution"][action_id]
+        baseline_dist = baseline_stats["final_distribution"][action_id]
+        masked_dist = masked_stats["final_distribution"][action_id]
         print(
             f"{action_name:<20} "
-            f"{pre_dist:>7.2%}  "
-            f"{post_dist:>7.2%}"
+            f"{baseline_dist:>7.2%}  "
+            f"{masked_dist:>7.2%}"
         )
 
     print("\n--- Phase Distribution ---\n")
-    print("Phase               PRE     POST")
-    for phase_name, pre_dist in pre_stats["phase_distribution"].items():
-        post_dist = post_stats["phase_distribution"][phase_name]
-        print(f"{phase_name:<15} {pre_dist:>7.2%}  {post_dist:>7.2%}")
+    print("Phase               BASELINE   MASKED")
+    for phase_name, baseline_dist in baseline_stats["phase_distribution"].items():
+        masked_dist = masked_stats["phase_distribution"][phase_name]
+        print(f"{phase_name:<15} {baseline_dist:>7.2%}  {masked_dist:>7.2%}")
 
     print("\n--- Phase Intervention Rates ---\n")
-    print("Phase               PRE     POST")
-    for phase_name, pre_rate in pre_stats["phase_intervention_rates"].items():
-        post_rate = post_stats["phase_intervention_rates"][phase_name]
-        print(f"{phase_name:<15} {pre_rate:>7.2%}  {post_rate:>7.2%}")
+    print("Phase               BASELINE   MASKED")
+    for phase_name, baseline_rate in baseline_stats["phase_intervention_rates"].items():
+        masked_rate = masked_stats["phase_intervention_rates"][phase_name]
+        print(f"{phase_name:<15} {baseline_rate:>7.2%}  {masked_rate:>7.2%}")
 
     print("\n--- Visible-Track Intervention Rate ---\n")
     print(
-        "PRE:  "
-        f"{pre_stats['visible_track_intervention_count']}"
+        "BASELINE:  "
+        f"{baseline_stats['visible_track_intervention_count']}"
         "/"
-        f"{pre_stats['visible_track_count']} "
-        f"({pre_stats['visible_track_intervention_rate']:.2%})"
+        f"{baseline_stats['visible_track_count']} "
+        f"({baseline_stats['visible_track_intervention_rate']:.2%})"
     )
 
     print(
-        "POST: "
-        f"{post_stats['visible_track_intervention_count']}"
+        "MASKED: "
+        f"{masked_stats['visible_track_intervention_count']}"
         "/"
-        f"{post_stats['visible_track_count']} "
-        f"({post_stats['visible_track_intervention_rate']:.2%})"
+        f"{masked_stats['visible_track_count']} "
+        f"({masked_stats['visible_track_intervention_rate']:.2%})"
     )
 
-    print("\n--- Post-mask Diagnostics ---\n")
-    print(f"Mask active rate: {post_stats['mask_active_rate']:.4f}")
-    print(f"Avg masked actions when active: {post_stats['avg_masked_actions_when_active']:.4f}")
-    print(f"Mean masked probability mass: {post_stats['mean_masked_mass']:.4f}")
-    print(f"Mean masked mass when active: {post_stats['mean_masked_mass_when_active']:.4f}")
-    print(f"Max masked mass: {post_stats['max_masked_mass']:.4f}")
+    print("\n--- Masked Diagnostics ---\n")
+    print(f"Mask active rate: {masked_stats['mask_active_rate']:.4f}")
+    print(f"Avg masked actions when active: {masked_stats['avg_masked_actions_when_active']:.4f}")
+    print(f"Mean masked probability mass: {masked_stats['mean_masked_mass']:.4f}")
+    print(f"Mean masked mass when active: {masked_stats['mean_masked_mass_when_active']:.4f}")
+    print(f"Max masked mass: {masked_stats['max_masked_mass']:.4f}")
 
-    print(f"Intervention | mask active: {post_stats['intervention_when_masked']:.4f}")
-    print(f"Intervention | mask inactive: {post_stats['intervention_when_unmasked']:.4f}")
+    print(f"Intervention | mask active: {masked_stats['intervention_when_masked']:.4f}")
+    print(f"Intervention | mask inactive: {masked_stats['intervention_when_unmasked']:.4f}")
 
-    print(f"Visible-track rate: {post_stats['semantic_rate']:.4f}")
-    print(f"Raw Search/Patrol mass: {post_stats['mean_semantic_raw_mass']:.4f}")
+    print(f"Visible-track rate: {masked_stats['semantic_rate']:.4f}")
+    print(f"Raw Search/Patrol mass: {masked_stats['mean_semantic_raw_mass']:.4f}")
     
 if __name__ == "__main__":
     main()
