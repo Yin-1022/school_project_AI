@@ -117,7 +117,8 @@ def flush_rollout_buffer(buffer, bootstrap_cathe=None):
         payload["bootstrap_frames"] = (bootstrap_cathe["frames"].squeeze(0).detach().cpu().numpy() * 255).astype(np.uint8)
         payload["bootstrap_extra"] = bootstrap_cathe["extra"].squeeze(0).cpu().numpy()
 
-    np.savez(temp_out_path, **payload)
+    with temp_out_path.open("wb") as f:
+        np.savez(f, **payload)
 
     temp_out_path.rename(out_path)
 
