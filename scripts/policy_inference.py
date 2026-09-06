@@ -12,12 +12,16 @@ def load_model(weights_path:str, device:str ="cuda"):
     model.eval()
     return model
 
-def load_actor_critic_model(weights_path:str, device:str ="cuda", checkpoint:dict=None):
+def load_actor_critic_model(weights_path:str, device:str ="cuda"):
     model = TeacherActorCriticNet(in_ch=3, extra_dim=24, num_actions=10)
-    if checkpoint is not None:
-        model.load_state_dict(checkpoint["model_state_dict"])
-    else:
-        model.load_state_dict(torch.load(weights_path, map_location=device))
+    checkpoint = torch.load(
+        weights_path,
+        map_location=device,
+    )
+
+    model.load_state_dict(
+        checkpoint["model_state_dict"]
+    )
     model.to(device)
     model.eval()
     return model
@@ -55,6 +59,41 @@ def infer_action(frames, extra, model, sample=False, action_mask=None):
         "topk_ids": topk_ids.cpu().numpy(),
         "topk_probs": topk_probs.cpu().numpy(),
         # "value": value,
+    }
+
+def infer_actor_critic_action(frames, extra, model, sample=False, action_mask=None):
+    device = next(model.parameters()).device
+    frames = frames.to(device)
+    extra = extra.to(device)
+    
+    with torch.no_grad():
+        logits, value = model(frames, extra)
+
+        if action_mask is not None:
+            masked_logits = apply_action_mask(logits, action_mask)
+        else:
+            masked_logits = logits
+
+        probs = torch.softmax(masked_logits, dim=1)
+
+    if sample:
+        action_id = torch.multinomial(probs, num_samples=1).item()
+    else:
+        action_id = probs.argmax(dim=1).item()
+
+    conf = probs[0, action_id].item()
+    action_name = ACTION_ID_TO_NAME[action_id]
+    topk_probs, topk_ids = torch.topk(probs, k=3, dim=1)
+
+    return {
+        "action_id": action_id,
+        "action_name": action_name,
+        "conf": conf,
+        "logits": logits,
+        "probs": probs,
+        "topk_ids": topk_ids.cpu().numpy(),
+        "topk_probs": topk_probs.cpu().numpy(),
+        "value": value,
     }
 
 ID_TO_CLASS = {v: k for k, v in CLASS_TO_ID.items()}
