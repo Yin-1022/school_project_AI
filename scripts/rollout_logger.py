@@ -67,6 +67,12 @@ def flush_rollout_buffer(buffer, bootstrap_cathe=None):
         f"{ACTION_MASK_MODE}_"
         f"{timestamp}.npz"
     )
+    temp_out_path = out_dir / (
+        f"rollout_v3_"
+        f"{ROLLOUT_PROFILE}_"
+        f"{ACTION_MASK_MODE}_"
+        f"{timestamp}.tmp.npz"
+    )
 
     payload = {
         "action_mask_mode": np.asarray(ACTION_MASK_MODE),
@@ -111,7 +117,9 @@ def flush_rollout_buffer(buffer, bootstrap_cathe=None):
         payload["bootstrap_frames"] = (bootstrap_cathe["frames"].squeeze(0).detach().cpu().numpy() * 255).astype(np.uint8)
         payload["bootstrap_extra"] = bootstrap_cathe["extra"].squeeze(0).cpu().numpy()
 
-    np.savez(out_path, **payload)
+    np.savez(temp_out_path, **payload)
+
+    temp_out_path.rename(out_path)
 
     print(f"[rollout] saved {len(buffer)} steps -> {out_path}")
     buffer.clear()

@@ -1,6 +1,7 @@
 import torch, torch.nn as nn
 import numpy as np
 from pathlib import Path
+import time
 
 from models import (TeacherActorCriticNet, TeacherPolicyNet)
 from impala_unroll import build_unrolls
@@ -22,16 +23,6 @@ actor_critic = TeacherActorCriticNet(
 )
 
 def main() -> None:
-    files = sorted(
-            ROLLOUT_DIR.glob("*.npz"),
-            key=lambda path: path.stat().st_mtime,
-        )
-    
-    if not files:
-            raise FileNotFoundError(
-                f"No rollout files found in {ROLLOUT_DIR}"
-            )
-
     bc_model = TeacherPolicyNet(
         in_ch=3,
         extra_dim=24,
@@ -54,56 +45,75 @@ def main() -> None:
 
     global_step = 0
 
-    for path in files:
-        print(f"loading: {path}")
-
-        data = np.load(
-            path,
-            allow_pickle=False,
-        )
-
-        if "rollout_profile" not in data.files:
-            continue
-
-        if not data["rollout_profile"] == "train":
-            continue
-
-        unrolls = build_unrolls(
-            data,
-            unroll_length=UNROLL_LENGTH,
-        )
-
-        for unroll in unrolls:
-            metrics = train_impala_batch(
-                model=actor_critic,
-                optimizer=optimizer,
-                batch_unrolls=[unroll],
-                max_grad_norm=MAX_GRAD_NORM,
+    while True:
+        files = sorted(
+                ROLLOUT_DIR.glob("*.npz"),
+                key=lambda path: path.stat().st_mtime,
             )
-            global_step += 1
+        
+        if not files:
+            print(f"No rollout files found in {ROLLOUT_DIR}")
+            time.sleep(5)
+            continue
+         
+        for path in files:
+            print(f"loading: {path}")
 
-            print(f"Step: {global_step}")
-            print(f"Loss: {metrics['total_loss'].item()}")
-            print(f"Policy: {metrics['policy_loss'].item()}")
-            print(f"Value: {metrics['value_loss'].item()}")
-            print(f"Entropy: {metrics['entropy'].item()}")
-            print(f"mean_rho: {metrics['mean_rho'].item()}")
-            print(f"grad_norm: {metrics['grad_norm'].item()}")
-            print(f"Valid: {metrics['valid_steps'].item()}")
+            data = np.load(
+                path,
+                allow_pickle=False,
+            )
 
-    torch.save(
-        {
-            "model_state_dict":
-                actor_critic.state_dict(),
+            if "rollout_profile" not in data.files:
+                continue
 
-            "optimizer_state_dict":
-                optimizer.state_dict(),
+            if not data["rollout_profile"] == "train":
+                continue
 
-            "training_step":
-                global_step,
-        },
-        SAVE_PATH,
-    )
+            unrolls = build_unrolls(
+                data,
+                unroll_length=UNROLL_LENGTH,
+            )
+
+            for unroll in unrolls:
+                metrics = train_impala_batch(
+                    model=actor_critic,
+                    optimizer=optimizer,
+                    batch_unrolls=[unroll],
+                    max_grad_norm=MAX_GRAD_NORM,
+                )
+                global_step += 1
+
+                print(f"Step: {global_step}")
+                print(f"Loss: {metrics['total_loss'].item()}")
+                print(f"Policy: {metrics['policy_loss'].item()}")
+                print(f"Value: {metrics['value_loss'].item()}")
+                print(f"Entropy: {metrics['entropy'].item()}")
+                print(f"mean_rho: {metrics['mean_rho'].item()}")
+                print(f"grad_norm: {metrics['grad_norm'].item()}")
+                print(f"Valid: {metrics['valid_steps'].item()}")
+
+            torch.save(
+                {
+                    "model_state_dict":
+                        actor_critic.state_dict(),
+
+                    "optimizer_state_dict":
+                        optimizer.state_dict(),
+
+                    "training_step":
+                        global_step,
+                },
+                SAVE_PATH,
+            )
+
+            print(f"Finished processing: {path}")
+            #move the processed file to another location
+            processed_dir = ROLLOUT_DIR / "processed"
+            processed_dir.mkdir(exist_ok=True)
+
+            processed_path = processed_dir / path.name
+            path.rename(processed_path)
 
 if __name__ == "__main__":
     main()
