@@ -84,6 +84,8 @@ def main():
         locked_action = None
         global SEQ
 
+        print("ACTION_MASK_MODE: ", ACTION_MASK_MODE)
+
         for frame in tcp_frame_stream(host='127.0.0.1', port=9999, img_w=192, img_h=192, img_c=3, debug_show=False):
             if frame is None:
                 episode_done_now = False
