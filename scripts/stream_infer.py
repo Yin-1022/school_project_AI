@@ -268,7 +268,7 @@ def main():
                     )
                     last_step_cache = None
 
-                flush_rollout_buffer(rollout_buffer)
+                flush_rollout_buffer(rollout_buffer, last_step_cache)
 
                 with UE_EVENT_LOCK:
                     UE_EVENT_STATE["episode_done_flag"] = False

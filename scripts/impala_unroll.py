@@ -178,12 +178,36 @@ def build_unrolls(data, unroll_length=20, has_behavior_probs=False):
                 unroll_dict["behavior_probs"] = data["behavior_probs"][start:start + unroll_length]
 
             start = start + unroll_length
-        else:
+        elif remaining_steps == unroll_length:
+            valid_mask = np.ones(unroll_length,dtype=np.float32)
+            bootstrap_valid = 1
+            selected_reward, reward_priority = compute_selected_reward(data, start, unroll_length)
+            behavior_log_prob = compute_behavior_log_prob(
+                    data["probs"][start:start + unroll_length],
+                    data["proposed_action_id"][start:start + unroll_length]
+                )
+        
             unroll_dict = {
-                "bootstrap_frames": data["frames"][start],
-                "bootstrap_extra": data["extra"][start],
-                "bootstrap_valid": np.int64(1),
+                "frames": data["frames"][start:start + unroll_length],
+                "extra": data["extra"][start:start + unroll_length],
+                "proposed_action_id": data["proposed_action_id"][start:start + unroll_length],
+                "final_action_id": data["final_action_id"][start:start + unroll_length],
+                "selected_reward": selected_reward,
+                "reward_priority": reward_priority,
+                "reward_high": data["reward_high"][start:start + unroll_length],
+                "reward_medium": data["reward_medium"][start:start + unroll_length],
+                "reward_low": data["reward_low"][start:start + unroll_length],
+                "done": data["done"][start:start + unroll_length],
+                "probs": data["probs"][start:start + unroll_length],
+                "behavior_log_prob": behavior_log_prob,
+                "bootstrap_frames": data["bootstrap_frames"],
+                "bootstrap_extra": data["bootstrap_extra"],
+                "valid_mask": valid_mask,
+                "action_mask": pad_action_mask(source_action_mask[start:start + valid_length], unroll_length),
+                "bootstrap_valid": 1
             }
+        else:
+            break
 
         unrolls.append(unroll_dict)
 

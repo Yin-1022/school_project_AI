@@ -1,4 +1,3 @@
-from constant import ROLLOUT_PROFILE
 import torch, torch.nn as nn
 import numpy as np
 from pathlib import Path
@@ -62,6 +61,9 @@ def main() -> None:
             path,
             allow_pickle=False,
         )
+
+        if "rollout_profile" not in data.files:
+            continue
 
         if not data["rollout_profile"] == "train":
             continue

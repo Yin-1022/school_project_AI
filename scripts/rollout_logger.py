@@ -108,8 +108,8 @@ def flush_rollout_buffer(buffer, bootstrap_cathe=None):
         payload["frames"] = np.stack([x["frames"] for x in buffer],axis=0,)
 
     if ROLLOUT_PROFILE == "train" and payload["done"].sum() == 0 and bootstrap_cathe is not None:
-        payload["bootstrap_frames"] = np.stack([bootstrap_cathe["frames"]],axis=0, dtype=np.uint8)
-        payload["bootstrap_extra"] = np.stack([bootstrap_cathe["extra"]],axis=0, dtype=np.float32)
+        payload["bootstrap_frames"] = (bootstrap_cathe["frames"].squeeze(0).detach().cpu().numpy() * 255).astype(np.uint8)
+        payload["bootstrap_extra"] = bootstrap_cathe["extra"].squeeze(0).cpu().numpy()
 
     np.savez(out_path, **payload)
 
