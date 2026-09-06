@@ -206,6 +206,7 @@ def build_unrolls(data, unroll_length=20, has_behavior_probs=False):
                 "action_mask": source_action_mask[start:start + unroll_length],
                 "bootstrap_valid": 1
             }
+            start = start + unroll_length
         else:
             break
 
