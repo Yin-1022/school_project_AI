@@ -1,5 +1,5 @@
 import torch
-from models import TeacherPolicyNet, Small3DNet
+from models import TeacherPolicyNet, Small3DNet, TeacherActorCriticNet
 from constant import (
     ACTION_ID_TO_NAME,
 )
@@ -9,6 +9,16 @@ def load_model(weights_path:str, device:str ="cuda"):
     model = TeacherPolicyNet(in_ch=3, extra_dim=24, num_actions=10)
     model.to(device)
     model.load_state_dict(torch.load(weights_path, map_location=device))
+    model.eval()
+    return model
+
+def load_actor_critic_model(weights_path:str, device:str ="cuda", checkpoint:dict=None):
+    model = TeacherActorCriticNet(in_ch=3, extra_dim=24, num_actions=10)
+    if checkpoint is not None:
+        model.load_state_dict(checkpoint["model_state_dict"])
+    else:
+        model.load_state_dict(torch.load(weights_path, map_location=device))
+    model.to(device)
     model.eval()
     return model
 
