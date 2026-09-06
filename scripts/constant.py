@@ -24,7 +24,7 @@ TEACHER_DATA_MODE = False
 TEACHER_EVADE_PROB = 0.25   
 TEACHER_EVADEBACK_PROB = 0.45 
 
-POLICY_MODE = "bc"
+POLICY_MODE = "impala"
 # "bc"
 # "impala"
 
@@ -46,7 +46,7 @@ elif ROLLOUT_PROFILE == "train":
     ROLLOUT_SAVE_EVERY = 20
     
 
-if POLICY_MODE == "bc":
+if POLICY_MODE in ["bc", "impala"]:
     ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
 else:
     ROLLOUT_DIR = Path("data/rollouts/rollouts_rule")

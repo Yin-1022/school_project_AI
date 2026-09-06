@@ -71,7 +71,7 @@ def main():
         if POLICY_MODE == "bc":
             model = load_model(str(WEIGHTS_PATH), device=device)
         elif POLICY_MODE == "impala":
-            model = load_actor_critic_model(str(WEIGHTS_PATH), device=device)
+            model = load_actor_critic_model(str(IMPALA_WEIGHTS_PATH), device=device)
         receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE)
         action_cls_model = load_action_cls_model(str(ACTION_CLS_WEIGHTS_PATH), device=device)
 
