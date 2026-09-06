@@ -22,28 +22,37 @@ actor_critic = TeacherActorCriticNet(
     num_actions=10,
 )
 
+optimizer = torch.optim.Adam(actor_critic.parameters(), lr=LEARNING_RATE)
+
 def main() -> None:
-    bc_model = TeacherPolicyNet(
-        in_ch=3,
-        extra_dim=24,
-        num_actions=10,
-    )
+    if SAVE_PATH.exists():
+        checkpoint = torch.load(SAVE_PATH, map_location="cpu")
+        actor_critic.load_state_dict(checkpoint["model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        global_step = checkpoint["training_step"]
+        print(f"Loaded model from {SAVE_PATH}")
+        print(f"Resuming training step: {global_step}")
 
-    bc_state = torch.load(
-        BC_WEIGHTS_PATH,
-        map_location="cpu",
-    )
+    else:
+        bc_model = TeacherPolicyNet(
+            in_ch=3,
+            extra_dim=24,
+            num_actions=10,
+        )
 
-    bc_model.load_state_dict(bc_state)
+        bc_state = torch.load(
+            BC_WEIGHTS_PATH,
+            map_location="cpu",
+        )
 
-    warmstart_actor_critic_from_bc(
-        actor_critic,
-        bc_model,
-    )
+        bc_model.load_state_dict(bc_state)
 
-    optimizer = torch.optim.Adam(actor_critic.parameters(), lr=LEARNING_RATE)
+        warmstart_actor_critic_from_bc(
+            actor_critic,
+            bc_model,
+        )
 
-    global_step = 0
+        global_step = 0
 
     while True:
         processed_any = False
@@ -67,8 +76,7 @@ def main() -> None:
                 if not data["rollout_profile"] == "train":
                     continue
 
-                if "rollout_profile" in data.files and data["rollout_profile"] == "train":
-                    processed_any = True
+                processed_any = True
 
                 unrolls = build_unrolls(
                     data,
