@@ -48,7 +48,8 @@ def append_rollout_step(buffer, frames, extra, logits, probs, behavior_probs,
     }
 
     if ROLLOUT_PROFILE == "train":
-        step["frames"] = frames.squeeze(0).detach().cpu().numpy() # shape (C,T,H,W)
+        #make frames into uint8 [0,255]
+        step["frames"] = (frames.squeeze(0).detach().cpu().numpy() * 255).astype(np.uint8) # shape (C,T,H,W)
 
     buffer.append(step)
 

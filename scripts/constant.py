@@ -38,7 +38,12 @@ ROLLOUT_PROFILE = "eval"
 # "eval"
 # "train"
 
-ROLLOUT_SAVE_EVERY = 1000
+if ROLLOUT_PROFILE == "eval":
+    ROLLOUT_SAVE_EVERY = 1000
+elif ROLLOUT_PROFILE == "train":
+    ROLLOUT_SAVE_EVERY = 20
+    
+
 if POLICY_MODE == "bc":
     ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
 else:

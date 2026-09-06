@@ -74,12 +74,14 @@ def train_impala_batch(model, optimizer, batch_unrolls, max_grad_norm=40.0):
     flat_extra = extra.reshape(batch_size * unroll_length,-1)
 
     flat_frames = torch.from_numpy(flat_frames).float()
+    flat_frames = flat_frames / 255.0
     flat_extra = torch.from_numpy(flat_extra).float()
 
     bootstrap_frames = np.stack([u["bootstrap_frames"] for u in batch_unrolls], axis=0)
     bootstrap_extra = np.stack([u["bootstrap_extra"] for u in batch_unrolls], axis=0)
     bootstrap_valid = np.stack([u["bootstrap_valid"] for u in batch_unrolls], axis=0)
     bootstrap_frames_tensor = torch.from_numpy(bootstrap_frames).float()
+    bootstrap_frames_tensor = bootstrap_frames_tensor / 255.0
     bootstrap_extra_tensor = torch.from_numpy(bootstrap_extra).float()
     bootstrap_valid_tensor = torch.from_numpy(bootstrap_valid).float()
 
