@@ -46,6 +46,7 @@ def main() -> None:
     global_step = 0
 
     while True:
+        processed_any = False
         files = sorted(
                 ROLLOUT_DIR.glob("*.npz"),
                 key=lambda path: path.stat().st_mtime,
@@ -59,21 +60,20 @@ def main() -> None:
         for path in files:
             print(f"loading: {path}")
 
-            data = np.load(
-                path,
-                allow_pickle=False,
-            )
+            with np.load(path, allow_pickle=False) as data:
+                if "rollout_profile" not in data.files:
+                    continue
 
-            if "rollout_profile" not in data.files:
-                continue
+                if not data["rollout_profile"] == "train":
+                    continue
 
-            if not data["rollout_profile"] == "train":
-                continue
+                if "rollout_profile" in data.files and data["rollout_profile"] == "train":
+                    processed_any = True
 
-            unrolls = build_unrolls(
-                data,
-                unroll_length=UNROLL_LENGTH,
-            )
+                unrolls = build_unrolls(
+                    data,
+                    unroll_length=UNROLL_LENGTH,
+                )
 
             for unroll in unrolls:
                 metrics = train_impala_batch(
@@ -114,6 +114,10 @@ def main() -> None:
 
             processed_path = processed_dir / path.name
             path.rename(processed_path)
+
+        if not processed_any:
+            print("No valid rollout files found.")
+            time.sleep(5)
 
 if __name__ == "__main__":
     main()

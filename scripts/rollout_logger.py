@@ -71,7 +71,7 @@ def flush_rollout_buffer(buffer, bootstrap_cathe=None):
         f"rollout_v3_"
         f"{ROLLOUT_PROFILE}_"
         f"{ACTION_MASK_MODE}_"
-        f"{timestamp}.tmp.npz"
+        f"{timestamp}.tmp"
     )
 
     payload = {
