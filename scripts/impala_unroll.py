@@ -203,7 +203,7 @@ def build_unrolls(data, unroll_length=20, has_behavior_probs=False):
                 "bootstrap_frames": data["bootstrap_frames"],
                 "bootstrap_extra": data["bootstrap_extra"],
                 "valid_mask": valid_mask,
-                "action_mask": pad_action_mask(source_action_mask[start:start + valid_length], unroll_length),
+                "action_mask": source_action_mask[start:start + unroll_length],
                 "bootstrap_valid": 1
             }
         else:

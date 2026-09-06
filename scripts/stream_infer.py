@@ -408,7 +408,7 @@ def main():
             }
 
             if len(rollout_buffer) >= ROLLOUT_SAVE_EVERY or ue_episode_done:
-                flush_rollout_buffer(rollout_buffer)
+                flush_rollout_buffer(rollout_buffer, last_step_cache)
 
             print(
                 f"[t={frame_id_end:05d}] "
