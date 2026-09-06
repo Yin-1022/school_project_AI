@@ -113,7 +113,7 @@ def main():
                         UE_EVENT_STATE["episode_done_flag"] = False
 
                 if rollout_buffer:
-                    flush_rollout_buffer(rollout_buffer)
+                    flush_rollout_buffer(rollout_buffer, last_step_cache)
 
                 print("[stream] disconnected, closing recorder")
                 break

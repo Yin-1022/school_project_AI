@@ -179,7 +179,11 @@ def build_unrolls(data, unroll_length=20, has_behavior_probs=False):
 
             start = start + unroll_length
         else:
-            break
+            unroll_dict = {
+                "bootstrap_frames": data["frames"][start],
+                "bootstrap_extra": data["extra"][start],
+                "bootstrap_valid": np.int64(1),
+            }
 
         unrolls.append(unroll_dict)
 

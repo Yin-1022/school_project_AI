@@ -53,7 +53,7 @@ def append_rollout_step(buffer, frames, extra, logits, probs, behavior_probs,
 
     buffer.append(step)
 
-def flush_rollout_buffer(buffer):
+def flush_rollout_buffer(buffer, bootstrap_cathe=None):
     if not buffer:
         return
     
@@ -106,6 +106,10 @@ def flush_rollout_buffer(buffer):
 
     if ROLLOUT_PROFILE == "train":
         payload["frames"] = np.stack([x["frames"] for x in buffer],axis=0,)
+
+    if ROLLOUT_PROFILE == "train" and payload["done"].sum() == 0 and bootstrap_cathe is not None:
+        payload["bootstrap_frames"] = np.stack([bootstrap_cathe["frames"]],axis=0, dtype=np.uint8)
+        payload["bootstrap_extra"] = np.stack([bootstrap_cathe["extra"]],axis=0, dtype=np.float32)
 
     np.savez(out_path, **payload)
 
