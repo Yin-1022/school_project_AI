@@ -354,6 +354,7 @@ def main():
                     topk_actions=topk_actions,
                     frame_id_end=frame_id_end,
                     info=info,
+                    action_mask=action_mask
                 )
 
                 action, pol_state, fire_frame = apply_action_with_state(

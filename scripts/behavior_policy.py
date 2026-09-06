@@ -4,13 +4,17 @@ from action_postprocess import simulate_action_with_state
 from constant import ACTION_ID_TO_NAME
 from observation_builder import ACTION_NAME_TO_ID
 
-def compute_behavior_probs(prob, pol_state, topk_actions, frame_id_end, info):
+def compute_behavior_probs(prob, pol_state, topk_actions, frame_id_end, info, action_mask):
     num_actions = len(ACTION_ID_TO_NAME)
     behavior_probs = np.zeros(num_actions, dtype=np.float32)
     action_mapping = {}
 
     for proposed_action_id in range(num_actions):
         proposed_action_name = ACTION_ID_TO_NAME[proposed_action_id]
+
+        if action_mask is not None and not action_mask[proposed_action_id]:
+            # If the proposed action is masked, skip it
+            continue
 
         final_action, _, _ = simulate_action_with_state(
             pol_state=pol_state,

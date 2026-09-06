@@ -24,6 +24,8 @@ semantic_action_ids = [
     ],
 ]
 
+retreat_index = ACTION_NAME_TO_ID["Retreat"]
+
 def safe_mean(values):
     if len(values) == 0:
         return 0.0
@@ -100,23 +102,24 @@ def analyze_rollout_group(files, is_analyzing_mask):
             if is_analyzing_mask:
                 action_mask = data["action_mask"].astype(bool)
 
-                illegal = ~action_mask
-                mask_active = illegal.any(axis=1)
+                dynamic_illegal = ~action_mask
+                dynamic_illegal[:, retreat_index] = False
+                mask_active = dynamic_illegal.any(axis=1)
 
                 current_mask_active_count = int(mask_active.sum())
                 mask_active_count += current_mask_active_count
 
                 unmasked_transition_count += (n-current_mask_active_count)
 
-                masked_slot_count += int(illegal.sum())
-                masked_action_counts += illegal.sum(axis=0)
+                masked_slot_count += int(dynamic_illegal.sum())
+                masked_action_counts += dynamic_illegal.sum(axis=0)
 
                 # Raw policy probabilities
                 logits = torch.from_numpy(data["logits"].astype(np.float32))
                 raw_probs = torch.softmax(logits, dim=-1).numpy()
 
                 # Masked Probability Mass
-                masked_prob_mass = (raw_probs * illegal).sum(axis=1)
+                masked_prob_mass = (raw_probs * dynamic_illegal).sum(axis=1)
                 masked_mass_sum += float(masked_prob_mass.sum())
                 masked_mass_active_sum += float(masked_prob_mass[mask_active].sum())
                 if len(masked_prob_mass) > 0:
@@ -270,26 +273,26 @@ def main() -> None:
 
     print(f"--- Action Mask Comparison ---\n")
     print("Dataset")
-    print("                    BASELINE   MASKED")
-    print(f"Files             {baseline_stats['file_count']:>5}  {masked_stats['file_count']:>5}")
-    print(f"Transitions       {baseline_stats['transition_count']:>5}  {masked_stats['transition_count']:>5}")
+    print("               BASELINE   MASKED")
+    print(f"Files             {baseline_stats['file_count']:>5}    {masked_stats['file_count']:>5}")
+    print(f"Transitions       {baseline_stats['transition_count']:>5}    {masked_stats['transition_count']:>5}")
 
     delta_pp = (masked_stats["intervention_rate"] - baseline_stats["intervention_rate"]) * 100
     print("\nPostprocess")
-    print("                      BASELINE    MASKED")
-    print(f"Interventions       {baseline_stats['intervention_count']:>5}   {masked_stats['intervention_count']:>5}")
-    print(f"Intervention Rate  {baseline_stats['intervention_rate']:.4f}  {masked_stats['intervention_rate']:.4f}")
-    print(f"Change                     {delta_pp:+.2f} pp")
+    print("                 BASELINE    MASKED")
+    print(f"Interventions       {baseline_stats['intervention_count']:>5}     {masked_stats['intervention_count']:>5}")
+    print(f"Intervention Rate  {baseline_stats['intervention_rate']:.4f}    {masked_stats['intervention_rate']:.4f}")
+    print(f"Change                        {delta_pp:+.2f} pp")
 
     print("\n--- Proposed Action Distribution ---\n")
-    print("Action Name            BASELINE   MASKED")
+    print("Action Name         BASELINE   MASKED")
     for action_id, action_name in ACTION_ID_TO_NAME.items():
         baseline_dist = baseline_stats["proposed_distribution"][action_id]
         masked_dist = masked_stats["proposed_distribution"][action_id]
         print(f"{action_name:<20} {baseline_dist:>7.2%}  {masked_dist:>7.2%}")
 
     print("\n--- Final Action Distribution ---\n")
-    print("Action Name            BASELINE   MASKED")
+    print("Action Name         BASELINE   MASKED")
 
     for action_id, action_name in ACTION_ID_TO_NAME.items():
         baseline_dist = baseline_stats["final_distribution"][action_id]
@@ -301,20 +304,20 @@ def main() -> None:
         )
 
     print("\n--- Phase Distribution ---\n")
-    print("Phase               BASELINE   MASKED")
+    print("Phase          BASELINE   MASKED")
     for phase_name, baseline_dist in baseline_stats["phase_distribution"].items():
         masked_dist = masked_stats["phase_distribution"][phase_name]
         print(f"{phase_name:<15} {baseline_dist:>7.2%}  {masked_dist:>7.2%}")
 
     print("\n--- Phase Intervention Rates ---\n")
-    print("Phase               BASELINE   MASKED")
+    print("Phase          BASELINE   MASKED")
     for phase_name, baseline_rate in baseline_stats["phase_intervention_rates"].items():
         masked_rate = masked_stats["phase_intervention_rates"][phase_name]
         print(f"{phase_name:<15} {baseline_rate:>7.2%}  {masked_rate:>7.2%}")
 
     print("\n--- Visible-Track Intervention Rate ---\n")
     print(
-        "BASELINE:  "
+        "BASELINE: "
         f"{baseline_stats['visible_track_intervention_count']}"
         "/"
         f"{baseline_stats['visible_track_count']} "
@@ -322,7 +325,7 @@ def main() -> None:
     )
 
     print(
-        "MASKED: "
+        "MASKED:   "
         f"{masked_stats['visible_track_intervention_count']}"
         "/"
         f"{masked_stats['visible_track_count']} "

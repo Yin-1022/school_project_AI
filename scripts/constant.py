@@ -26,7 +26,7 @@ TEACHER_EVADEBACK_PROB = 0.45
 
 POLICY_MODE = "bc"
 
-ACTION_MASK_MODE = "baseline"
+ACTION_MASK_MODE = "masked"
 # "baseline"
 # "masked"
 
