@@ -25,6 +25,8 @@ TEACHER_EVADE_PROB = 0.25
 TEACHER_EVADEBACK_PROB = 0.45 
 
 POLICY_MODE = "bc"
+# "bc"
+# "impala"
 
 ACTION_MASK_MODE = "masked"
 # "baseline"
@@ -34,7 +36,7 @@ MAP_VERSION = "new_map_v1"
 
 ACTION_SPACE_VERSION = "no_retreat_v1"
 
-ROLLOUT_PROFILE = "train"
+ROLLOUT_PROFILE = "eval"
 # "eval"
 # "train"
 

@@ -9,7 +9,12 @@ from visibility import update as vis_update
 from policy import init_state as policy_init, step as rule_policy_step
 from stream_io import send_action, receive_from_ue, tcp_frame_stream
 from observation_builder import build_frame_tensor, build_extra_tensor, ACTION_NAME_TO_ID
-from policy_inference import load_model, infer_action, load_action_cls_model, infer_player_state, CLASS_TO_ID
+from policy_inference import (
+    load_actor_critic_model, load_model, 
+    infer_action, infer_actor_critic_action,
+    load_action_cls_model, infer_player_state, 
+    CLASS_TO_ID
+)
 from presence_inference import (
     load_presence_model,
     infer_player_presence,
@@ -30,6 +35,7 @@ from behavior_policy import compute_behavior_probs
 # RAW_DIR = Path("data/raw_videos")
 # video_path = RAW_DIR / "raw_video_4_t.mp4"
 WEIGHTS_PATH = Path("data/meta/best_teacher_policy.pt")
+IMPALA_WEIGHTS_PATH = Path("data/meta/impala_persistent_smoke.pt")
 ACTION_CLS_WEIGHTS_PATH = Path("data/meta/best_action_cls.pt")
 PRESENCE_WEIGHTS_PATH = Path("data/meta/best_presence_avgmax_balanced_hardP.pt")
 CLIP_FRAMES     = 8          # 每個 clip 的影格數
@@ -64,6 +70,8 @@ def main():
         model = None
         if POLICY_MODE == "bc":
             model = load_model(str(WEIGHTS_PATH), device=device)
+        elif POLICY_MODE == "impala":
+            model = load_actor_critic_model(str(WEIGHTS_PATH), device=device)
         receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE)
         action_cls_model = load_action_cls_model(str(ACTION_CLS_WEIGHTS_PATH), device=device)
 
@@ -310,13 +318,10 @@ def main():
             action_mask = build_action_mask(pol_state, frame_id_end, info, mode=ACTION_MASK_MODE)
 
             if POLICY_MODE == "bc":
-                bc_out = infer_action(frames, extra_tensor, model, sample=True, action_mask=action_mask)
-                proposed_action = bc_out["action_name"]
-                action_conf = bc_out["conf"]
-                topk_actions = [ACTION_ID_TO_NAME[id] for id in bc_out["topk_ids"][0]]
-                topk_confs = bc_out["topk_probs"][0]
-                logits_for_log = bc_out["logits"]
-                probs_for_log = bc_out["probs"]
+                policy_out = infer_action(frames, extra_tensor, model, sample=True, action_mask=action_mask)
+
+            elif POLICY_MODE == "impala":
+                policy_out = infer_actor_critic_action(frames, extra_tensor, model, sample=True, action_mask=action_mask)
 
             elif POLICY_MODE == "rule":
                 rule_pred_name, rule_conf = derive_rule_pred_name(info)
@@ -347,7 +352,14 @@ def main():
                 logits_for_log = torch.from_numpy(logits_np)
                 probs_for_log = torch.from_numpy(probs_np)
 
-            if POLICY_MODE == "bc":
+            if POLICY_MODE in ["bc", "impala"]:
+                proposed_action = policy_out["action_name"]
+                action_conf = policy_out["conf"]
+                topk_actions = [ACTION_ID_TO_NAME[id] for id in policy_out["topk_ids"][0]]
+                topk_confs = policy_out["topk_probs"][0]
+                logits_for_log = policy_out["logits"]
+                probs_for_log = policy_out["probs"]
+
                 policy_probs_np = (probs_for_log.squeeze(0).detach().cpu().numpy())
 
                 behavior_probs, action_mapping = compute_behavior_probs(
@@ -424,7 +436,7 @@ def main():
                 f"phase={info['phase']} "
                 f"hint={info['search_hint']} "
                 f"motion={info['motion']:.4f} "
-                f"→ bc_action={proposed_action}({action_conf:.2f}) "
+                f"→ proposed_action={proposed_action}({action_conf:.2f}) "
                 f"final_action={action} "
                 f"fire@{fire_frame} "
                 f"hold_until={pol_state['hold_until_frame']} "
