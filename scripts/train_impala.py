@@ -10,7 +10,7 @@ from impala_learner import train_impala_batch, warmstart_actor_critic_from_bc, s
 ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
 
 BC_WEIGHTS_PATH = Path("data/meta/best_teacher_policy.pt")
-SAVE_PATH = Path("data/meta/impala_single_process.pt")
+SAVE_PATH = Path("data/meta/impala_persistent_smoke.pt")
 UNROLL_LENGTH = 20
 
 LEARNING_RATE = 1e-4
@@ -74,6 +74,16 @@ def main() -> None:
                     data,
                     unroll_length=UNROLL_LENGTH,
                 )
+
+                if not unrolls:
+                    print(f"No valid unrolls found in {path}")
+                    skipped_dir = ROLLOUT_DIR / "skipped"
+                    skipped_dir.mkdir(exist_ok=True)
+
+                    skipped_path = skipped_dir / path.name
+                    path.rename(skipped_path)
+                    print(f"Moved {path} to {skipped_path}")
+                    continue
 
             for unroll in unrolls:
                 metrics = train_impala_batch(
