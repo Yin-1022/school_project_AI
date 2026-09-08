@@ -54,6 +54,8 @@ if POLICY_MODE in ["bc", "impala"]:
 else:
     ROLLOUT_DIR = Path("data/rollouts/rollouts_rule")
 
+ACTOR_ID = "actor_0"
+
 ACTION_ID_TO_NAME: dict[int, str] = {
     0: "Hold",
     1: "Advance",
