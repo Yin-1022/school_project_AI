@@ -6,11 +6,11 @@ import time
 from models import (TeacherActorCriticNet, TeacherPolicyNet)
 from impala_unroll import build_unrolls
 from impala_learner import train_impala_batch, warmstart_actor_critic_from_bc, set_impala_train_mode
+from constant import LEARNER_CHECKPOINT_PATH, ACTOR_CHECKPOINT_PATH
 
 ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
 
 BC_WEIGHTS_PATH = Path("data/meta/best_teacher_policy.pt")
-SAVE_PATH = Path("data/meta/impala_persistent_smoke.pt")
 UNROLL_LENGTH = 20
 
 LEARNING_RATE = 1e-4
@@ -24,13 +24,19 @@ actor_critic = TeacherActorCriticNet(
 
 optimizer = torch.optim.Adam(actor_critic.parameters(), lr=LEARNING_RATE)
 
+def atomic_torch_save(payload, path):
+    temp_path = path.with_suffix(".tmp")
+    torch.save(payload, temp_path)
+    temp_path.replace(path)
+
+
 def main() -> None:
-    if SAVE_PATH.exists():
-        checkpoint = torch.load(SAVE_PATH, map_location="cpu")
+    if LEARNER_CHECKPOINT_PATH.exists():
+        checkpoint = torch.load(LEARNER_CHECKPOINT_PATH, map_location="cpu")
         actor_critic.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         global_step = checkpoint["training_step"]
-        print(f"Loaded model from {SAVE_PATH}")
+        print(f"Loaded model from {LEARNER_CHECKPOINT_PATH}")
         print(f"Resuming training step: {global_step}")
 
     else:
@@ -111,19 +117,20 @@ def main() -> None:
                 print(f"grad_norm: {metrics['grad_norm'].item()}")
                 print(f"Valid: {metrics['valid_steps'].item()}")
 
-            torch.save(
-                {
-                    "model_state_dict":
-                        actor_critic.state_dict(),
+            learner_payload = {
+                "model_state_dict": actor_critic.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "training_step": global_step,
+            }
 
-                    "optimizer_state_dict":
-                        optimizer.state_dict(),
+            atomic_torch_save(learner_payload, LEARNER_CHECKPOINT_PATH)
 
-                    "training_step":
-                        global_step,
-                },
-                SAVE_PATH,
-            )
+            actor_payload = {
+                "model_state_dict": actor_critic.state_dict(),
+                "training_step": global_step,
+            }
+
+            atomic_torch_save(actor_payload, ACTOR_CHECKPOINT_PATH)
 
             print(f"Finished processing: {path}")
             #move the processed file to another location

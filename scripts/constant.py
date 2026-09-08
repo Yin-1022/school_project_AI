@@ -28,6 +28,9 @@ POLICY_MODE = "impala"
 # "bc"
 # "impala"
 
+LEARNER_CHECKPOINT_PATH = Path("data/meta/impala_learner_smoke.pt")
+ACTOR_CHECKPOINT_PATH = Path("data/meta/impala_actor_smoke.pt")
+
 ACTION_MASK_MODE = "masked"
 # "baseline"
 # "masked"
