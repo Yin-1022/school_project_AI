@@ -239,7 +239,7 @@ def append_cached_step(rollout_buffer, cache, done=0):
 
         done=done,
         action_mask=cache["action_mask"],
-        action_policy_step=cache["actor_policy_step"],
+        actor_policy_step=cache["actor_policy_step"],
     )
 
     return True
