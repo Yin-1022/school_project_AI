@@ -39,7 +39,7 @@ MAP_VERSION = "new_map_v1"
 
 ACTION_SPACE_VERSION = "no_retreat_v1"
 
-ROLLOUT_PROFILE = "eval"
+ROLLOUT_PROFILE = "train"
 # "eval"
 # "train"
 

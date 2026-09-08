@@ -89,15 +89,15 @@ def main() -> None:
                     unroll_length=UNROLL_LENGTH,
                 )
 
-                if not unrolls:
-                    print(f"No valid unrolls found in {path}")
-                    skipped_dir = ROLLOUT_DIR / "skipped"
-                    skipped_dir.mkdir(exist_ok=True)
+            if not unrolls:
+                print(f"No valid unrolls found in {path}")
+                skipped_dir = ROLLOUT_DIR / "skipped"
+                skipped_dir.mkdir(exist_ok=True)
 
-                    skipped_path = skipped_dir / path.name
-                    path.rename(skipped_path)
-                    print(f"Moved {path} to {skipped_path}")
-                    continue
+                skipped_path = skipped_dir / path.name
+                path.rename(skipped_path)
+                print(f"Moved {path} to {skipped_path}")
+                continue
 
             for unroll in unrolls:
                 metrics = train_impala_batch(

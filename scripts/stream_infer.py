@@ -28,14 +28,14 @@ from constant import (
     ROLLOUT_SAVE_EVERY,
     POLICY_MODE,
     ACTION_MASK_MODE,
-    BLOCKING_ACTIONS
+    BLOCKING_ACTIONS,
+    LEARNER_CHECKPOINT_PATH
 )
 from behavior_policy import compute_behavior_probs
 
 # RAW_DIR = Path("data/raw_videos")
 # video_path = RAW_DIR / "raw_video_4_t.mp4"
 WEIGHTS_PATH = Path("data/meta/best_teacher_policy.pt")
-IMPALA_WEIGHTS_PATH = Path("data/meta/impala_persistent_smoke.pt")
 ACTION_CLS_WEIGHTS_PATH = Path("data/meta/best_action_cls.pt")
 PRESENCE_WEIGHTS_PATH = Path("data/meta/best_presence_avgmax_balanced_hardP.pt")
 CLIP_FRAMES     = 8          # 每個 clip 的影格數
@@ -71,7 +71,7 @@ def main():
         if POLICY_MODE == "bc":
             model = load_model(str(WEIGHTS_PATH), device=device)
         elif POLICY_MODE == "impala":
-            model = load_actor_critic_model(str(IMPALA_WEIGHTS_PATH), device=device)
+            model = load_actor_critic_model(str(LEARNER_CHECKPOINT_PATH), device=device)
         receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE)
         action_cls_model = load_action_cls_model(str(ACTION_CLS_WEIGHTS_PATH), device=device)
 
