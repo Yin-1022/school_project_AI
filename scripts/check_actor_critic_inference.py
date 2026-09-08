@@ -6,16 +6,16 @@ from policy_inference import (
     infer_actor_critic_action,
 )
 
-from constant import LEARNER_CHECKPOINT_PATH
+from constant import ACTOR_CHECKPOINT_PATH
 
 def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     print(f"Device: {device}")
-    print(f"Loading checkpoint: {LEARNER_CHECKPOINT_PATH}")
+    print(f"Loading checkpoint: {ACTOR_CHECKPOINT_PATH}")
 
     model, loaded_step = load_actor_critic_model(
-        LEARNER_CHECKPOINT_PATH,
+        ACTOR_CHECKPOINT_PATH,
         device=device,
     )
 

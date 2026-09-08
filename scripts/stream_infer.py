@@ -75,6 +75,7 @@ def main():
             model = load_model(str(WEIGHTS_PATH), device=device)
         elif POLICY_MODE == "impala":
             model, loaded_step = load_actor_critic_model(str(ACTOR_CHECKPOINT_PATH), device=device)
+            print(f"Loaded IMPALA actor step={loaded_step}")
         receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE)
         action_cls_model = load_action_cls_model(str(ACTION_CLS_WEIGHTS_PATH), device=device)
 
@@ -471,7 +472,7 @@ def main():
             if POLICY_MODE == "impala":
                 decision_count+=1
 
-                if decision_count %20 == 0:
+                if decision_count %10 == 0:
                     loaded_step = reload_AC_if_newer(model, loaded_step, str(ACTOR_CHECKPOINT_PATH), device=device)
 
             if (
