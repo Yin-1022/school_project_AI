@@ -39,7 +39,9 @@ def reload_AC_if_newer(model, current_step, checkpoint_path, device):
             checkpoint["model_state_dict"]
         )
         print(f"[IMPALA] Reloaded actor weights: step {current_step} -> {new_step}")
-        checkpoint["training_step"] = new_step
+        return new_step
+    else:
+        return current_step
 
 
 def infer_action(frames, extra, model, sample=False, action_mask=None):

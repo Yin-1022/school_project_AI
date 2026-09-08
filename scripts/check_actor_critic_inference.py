@@ -6,16 +6,16 @@ from policy_inference import (
     infer_actor_critic_action,
 )
 
-CHECKPOINT_PATH = "data/meta/impala_persistent_smoke.pt"
+from constant import LEARNER_CHECKPOINT_PATH
 
 def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     print(f"Device: {device}")
-    print(f"Loading checkpoint: {CHECKPOINT_PATH}")
+    print(f"Loading checkpoint: {LEARNER_CHECKPOINT_PATH}")
 
-    model = load_actor_critic_model(
-        CHECKPOINT_PATH,
+    model, loaded_step = load_actor_critic_model(
+        LEARNER_CHECKPOINT_PATH,
         device=device,
     )
 

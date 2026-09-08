@@ -467,10 +467,12 @@ def main():
             }
 
             send_action(jsonMsg)
-            decision_count+=1
 
-            if decision_count %20 == 0:
-                reload_AC_if_newer(model, loaded_step, str(ACTOR_CHECKPOINT_PATH), device=device)
+            if POLICY_MODE == "impala":
+                decision_count+=1
+
+                if decision_count %20 == 0:
+                    loaded_step = reload_AC_if_newer(model, loaded_step, str(ACTOR_CHECKPOINT_PATH), device=device)
 
             if (
                 action in BLOCKING_ACTIONS
