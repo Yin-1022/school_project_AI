@@ -19,12 +19,28 @@ def load_actor_critic_model(weights_path:str, device:str ="cuda"):
         map_location=device,
     )
 
+    loaded_step = checkpoint["training_step"]
     model.load_state_dict(
         checkpoint["model_state_dict"]
     )
     model.to(device)
     model.eval()
-    return model
+    return model, loaded_step
+
+def reload_AC_if_newer(model, current_step, checkpoint_path, device):
+    checkpoint = torch.load(
+            checkpoint_path,
+            map_location=device,
+        )
+    new_step = checkpoint["training_step"]
+
+    if new_step > current_step:
+        model.load_state_dict(
+            checkpoint["model_state_dict"]
+        )
+        print(f"[IMPALA] Reloaded actor weights: step {current_step} -> {new_step}")
+        checkpoint["training_step"] = new_step
+
 
 def infer_action(frames, extra, model, sample=False, action_mask=None):
     device = next(model.parameters()).device
@@ -59,7 +75,7 @@ def infer_action(frames, extra, model, sample=False, action_mask=None):
         "topk_ids": topk_ids.cpu().numpy(),
         "topk_probs": topk_probs.cpu().numpy(),
         # "value": value,
-    }
+    }    
 
 def infer_actor_critic_action(frames, extra, model, sample=False, action_mask=None):
     device = next(model.parameters()).device

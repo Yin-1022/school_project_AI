@@ -13,6 +13,7 @@ from policy_inference import (
     load_actor_critic_model, load_model, 
     infer_action, infer_actor_critic_action,
     load_action_cls_model, infer_player_state, 
+    reload_AC_if_newer,
     CLASS_TO_ID
 )
 from presence_inference import (
@@ -29,7 +30,8 @@ from constant import (
     POLICY_MODE,
     ACTION_MASK_MODE,
     BLOCKING_ACTIONS,
-    LEARNER_CHECKPOINT_PATH
+    LEARNER_CHECKPOINT_PATH,
+    ACTOR_CHECKPOINT_PATH
 )
 from behavior_policy import compute_behavior_probs
 
@@ -68,10 +70,11 @@ def main():
     try:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         model = None
+        loaded_step = 0
         if POLICY_MODE == "bc":
             model = load_model(str(WEIGHTS_PATH), device=device)
         elif POLICY_MODE == "impala":
-            model = load_actor_critic_model(str(LEARNER_CHECKPOINT_PATH), device=device)
+            model, loaded_step = load_actor_critic_model(str(ACTOR_CHECKPOINT_PATH), device=device)
         receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE)
         action_cls_model = load_action_cls_model(str(ACTION_CLS_WEIGHTS_PATH), device=device)
 
@@ -88,6 +91,7 @@ def main():
         pushed_frames = 0
         recv_frames = 0
         sample_every = 1
+        decision_count = 0
         action_lock_until_frame = -1
         locked_action = None
         global SEQ
@@ -463,6 +467,10 @@ def main():
             }
 
             send_action(jsonMsg)
+            decision_count+=1
+
+            if decision_count %20 == 0:
+                reload_AC_if_newer(model, loaded_step, str(ACTOR_CHECKPOINT_PATH), device=device)
 
             if (
                 action in BLOCKING_ACTIONS
