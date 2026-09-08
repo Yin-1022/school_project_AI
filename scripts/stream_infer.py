@@ -422,7 +422,7 @@ def main():
                 "ue_episode_done": False,
 
                 "action_mask": action_mask.copy(),
-                "action_policy_step": loaded_step,
+                "actor_policy_step": loaded_step,
             }
 
             if len(rollout_buffer) >= ROLLOUT_SAVE_EVERY or ue_episode_done:
