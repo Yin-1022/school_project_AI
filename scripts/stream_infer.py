@@ -81,7 +81,7 @@ def main(config: ActorConfig):
             print(f"frame_port={config.frame_port}")
             print(f"action_port={config.action_port}")
             print(f"event_port={config.event_port}")
-            
+
         action_client = get_osc_client(
             host=config.ue_host,
             action_port=config.action_port,
@@ -156,7 +156,7 @@ def main(config: ActorConfig):
                     timestamp = int(time.time())
                     video_path = (
                         PRESENCE_VIDEO_DIR
-                        / f"presence_raw_{timestamp}.mp4"
+                        / f"presence_raw_{config.actor_id}_{timestamp}.mp4"
                     )
 
                     fourcc = cv2.VideoWriter_fourcc(*"mp4v")

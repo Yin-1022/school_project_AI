@@ -5,8 +5,6 @@ import socket
 import numpy as np
 import cv2
 
-_OSC_CLIENT = None
-
 def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=12346):
     def on_att1_start(address, *args):
         with UE_EVENT_LOCK:
@@ -67,9 +65,7 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=12346):
     print(f"[接收] 監聽 port {event_port}...")
 
 def get_osc_client(host="127.0.0.1", action_port=12345):
-    global _OSC_CLIENT
-    if _OSC_CLIENT is None:
-        _OSC_CLIENT = SimpleUDPClient(host, action_port)
+    _OSC_CLIENT = SimpleUDPClient(host, action_port)
     return _OSC_CLIENT
 
 def send_action(msg, action_client=None):
