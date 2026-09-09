@@ -478,7 +478,7 @@ def main(config: ActorConfig):
                 "seq": SEQ
             }
 
-            send_action(jsonMsg, action_client=get_osc_client(host=config.ue_host, action_port=config.action_port))
+            send_action(jsonMsg, action_client=action_client)
 
             if POLICY_MODE == "impala":
                 decision_count+=1
