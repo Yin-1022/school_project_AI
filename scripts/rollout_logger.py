@@ -7,7 +7,6 @@ from constant import (
     MAP_VERSION,
     ACTION_SPACE_VERSION,
     ROLLOUT_PROFILE,
-    ACTOR_ID,
 )
 
 def append_rollout_step(buffer, frames, extra, logits, probs, behavior_probs,
@@ -56,7 +55,7 @@ def append_rollout_step(buffer, frames, extra, logits, probs, behavior_probs,
 
     buffer.append(step)
 
-def flush_rollout_buffer(buffer, bootstrap_cathe=None):
+def flush_rollout_buffer(buffer, actor_id, bootstrap_cathe=None):
     if not buffer:
         return
     
@@ -68,14 +67,14 @@ def flush_rollout_buffer(buffer, bootstrap_cathe=None):
         f"rollout_v3_"
         f"{ROLLOUT_PROFILE}_"
         f"{ACTION_MASK_MODE}_"
-        f"{ACTOR_ID}_"
+        f"{actor_id}_"
         f"{timestamp}.npz"
     )
     temp_out_path = out_dir / (
         f"rollout_v3_"
         f"{ROLLOUT_PROFILE}_"
         f"{ACTION_MASK_MODE}_"
-        f"{ACTOR_ID}_"
+        f"{actor_id}_"
         f"{timestamp}.tmp"
     )
 
@@ -84,7 +83,7 @@ def flush_rollout_buffer(buffer, bootstrap_cathe=None):
         "map_version": np.asarray(MAP_VERSION),
         "action_space_version": np.asarray(ACTION_SPACE_VERSION),
         "rollout_profile": np.asarray(ROLLOUT_PROFILE),
-        "actor_id": np.asarray(ACTOR_ID),
+        "actor_id": np.asarray(actor_id),
 
         "extra": np.stack([x["extra"] for x in buffer],axis=0),
         "logits": np.stack([x["logits"] for x in buffer],axis=0),

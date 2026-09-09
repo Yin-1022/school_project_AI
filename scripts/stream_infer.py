@@ -4,10 +4,11 @@ import collections
 from action_mask import build_action_mask
 import torch
 import numpy as np
+from actor_config import ActorConfig
 from presence_data import save_presence_sample
 from visibility import update as vis_update
 from policy import init_state as policy_init, step as rule_policy_step
-from stream_io import send_action, receive_from_ue, tcp_frame_stream
+from stream_io import send_action, receive_from_ue, tcp_frame_stream, get_osc_client
 from observation_builder import build_frame_tensor, build_extra_tensor, ACTION_NAME_TO_ID
 from policy_inference import (
     load_actor_critic_model, load_model, 
@@ -76,7 +77,11 @@ def main():
         elif POLICY_MODE == "impala":
             model, loaded_step = load_actor_critic_model(str(ACTOR_CHECKPOINT_PATH), device=device)
             print(f"Loaded IMPALA actor step={loaded_step}")
-        receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE)
+            print(f"[Actor {ActorConfig.actor_id}]")
+            print(f"frame_port={ActorConfig.frame_port}")
+            print(f"action_port={ActorConfig.ACTION_PORT}")
+            print(f"event_port={ActorConfig.EVENT_PORT}")
+        receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=ActorConfig.EVENT_PORT)
         action_cls_model = load_action_cls_model(str(ACTION_CLS_WEIGHTS_PATH), device=device)
 
         presence_model = load_presence_model(
@@ -99,7 +104,7 @@ def main():
 
         print("ACTION_MASK_MODE: ", ACTION_MASK_MODE)
 
-        for frame in tcp_frame_stream(host='127.0.0.1', port=9999, img_w=192, img_h=192, img_c=3, debug_show=False):
+        for frame in tcp_frame_stream(host='127.0.0.1', frame_port=ActorConfig.FRAME_PORT, img_w=192, img_h=192, img_c=3, debug_show=False):
             if frame is None:
                 episode_done_now = False
 
@@ -126,7 +131,7 @@ def main():
                         UE_EVENT_STATE["episode_done_flag"] = False
 
                 if rollout_buffer:
-                    flush_rollout_buffer(rollout_buffer, last_step_cache)
+                    flush_rollout_buffer(rollout_buffer, ActorConfig.actor_id, last_step_cache)
 
                 print("[stream] disconnected, closing recorder")
                 break
@@ -281,7 +286,7 @@ def main():
                     )
                     last_step_cache = None
 
-                flush_rollout_buffer(rollout_buffer, last_step_cache)
+                flush_rollout_buffer(rollout_buffer, ActorConfig.actor_id, last_step_cache)
 
                 with UE_EVENT_LOCK:
                     UE_EVENT_STATE["episode_done_flag"] = False
@@ -426,7 +431,7 @@ def main():
             }
 
             if len(rollout_buffer) >= ROLLOUT_SAVE_EVERY or ue_episode_done:
-                flush_rollout_buffer(rollout_buffer, last_step_cache)
+                flush_rollout_buffer(rollout_buffer, ActorConfig.actor_id, last_step_cache)
 
             print(
                 f"[t={frame_id_end:05d}] "
@@ -468,7 +473,7 @@ def main():
                 "seq": SEQ
             }
 
-            send_action(jsonMsg)
+            send_action(jsonMsg, action_client=get_osc_client(action_port=ActorConfig.ACTION_PORT))
 
             if POLICY_MODE == "impala":
                 decision_count+=1
@@ -500,7 +505,7 @@ def main():
         cv2.destroyAllWindows()
 
         if rollout_buffer:
-            flush_rollout_buffer(rollout_buffer)
+            flush_rollout_buffer(rollout_buffer, ActorConfig.actor_id)
             print("[rollout] flushed remaining buffer on shutdown")
 
 def init_presence_state() -> dict:

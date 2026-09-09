@@ -7,7 +7,7 @@ import cv2
 
 _OSC_CLIENT = None
 
-def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE):
+def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=12346):
     def on_att1_start(address, *args):
         with UE_EVENT_LOCK:
             UE_EVENT_STATE["att1_active"] = True
@@ -61,19 +61,20 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE):
     dp.map("/game_over", on_episode_done)
     dp.set_default_handler(on_fallback)
 
-    server = osc_server.ThreadingOSCUDPServer(("0.0.0.0", 12346), dp)
+    server = osc_server.ThreadingOSCUDPServer(("0.0.0.0", event_port), dp)
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
-    print(f"[接收] 監聽 port {12346}...")
+    print(f"[接收] 監聽 port {event_port}...")
 
-def get_osc_client():
+def get_osc_client(action_port=12345):
     global _OSC_CLIENT
     if _OSC_CLIENT is None:
-        _OSC_CLIENT = SimpleUDPClient("127.0.0.1", 12345)
+        _OSC_CLIENT = SimpleUDPClient("127.0.0.1", action_port)
     return _OSC_CLIENT
 
-def send_action(msg):
-    client = get_osc_client()
+def send_action(msg, action_client=None):
+    if action_client is None:
+        action_client = get_osc_client()
 
     action_name = msg["action"]
     angle = 0.0
@@ -103,20 +104,20 @@ def send_action(msg):
         int(msg["seq"]),                        # int
     ]
 
-    client.send_message("/boss/action", args)
+    action_client.send_message("/boss/action", args)
 
-def tcp_frame_stream(host='127.0.0.1', port=9999, img_w=192, img_h=192, img_c=3, debug_show=False):
+def tcp_frame_stream(host='127.0.0.1', frame_port=9999, img_w=192, img_h=192, img_c=3, debug_show=False):
     frame_size = img_w * img_h * img_c
 
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server_socket.bind((host, port))
+    server_socket.bind((host, frame_port))
     server_socket.listen(1)
 
     print("=== Python 推論伺服器已就緒 ===")
 
     while True:
-        print(f"[等待中] 正在監聽 Port {port}...")
+        print(f"[等待中] 正在監聽 Port {frame_port}...")
         conn = None
         try:
             conn, addr = server_socket.accept()
