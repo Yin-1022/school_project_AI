@@ -4,7 +4,7 @@ import collections
 from action_mask import build_action_mask
 import torch
 import numpy as np
-from actor_config import ActorConfig
+from actor_config import ActorConfig, parse_actor_config
 from presence_data import save_presence_sample
 from visibility import update as vis_update
 from policy import init_state as policy_init, step as rule_policy_step
@@ -63,7 +63,7 @@ UE_EVENT_LOCK = threading.Lock()
 PRESENCE_RECORD_MODE = True
 PRESENCE_VIDEO_DIR = Path("data/presence_videos")
 
-def main():
+def main(config: ActorConfig):
     rollout_buffer = []
     last_step_cache = None
     video_writer = None
@@ -77,11 +77,11 @@ def main():
         elif POLICY_MODE == "impala":
             model, loaded_step = load_actor_critic_model(str(ACTOR_CHECKPOINT_PATH), device=device)
             print(f"Loaded IMPALA actor step={loaded_step}")
-            print(f"[Actor {ActorConfig.actor_id}]")
-            print(f"frame_port={ActorConfig.frame_port}")
-            print(f"action_port={ActorConfig.ACTION_PORT}")
-            print(f"event_port={ActorConfig.EVENT_PORT}")
-        receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=ActorConfig.EVENT_PORT)
+            print(f"[Actor {config.actor_id}]")
+            print(f"frame_port={config.frame_port}")
+            print(f"action_port={config.action_port}")
+            print(f"event_port={config.event_port}")
+        receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=config.event_port)
         action_cls_model = load_action_cls_model(str(ACTION_CLS_WEIGHTS_PATH), device=device)
 
         presence_model = load_presence_model(
@@ -104,7 +104,7 @@ def main():
 
         print("ACTION_MASK_MODE: ", ACTION_MASK_MODE)
 
-        for frame in tcp_frame_stream(host='127.0.0.1', frame_port=ActorConfig.FRAME_PORT, img_w=192, img_h=192, img_c=3, debug_show=False):
+        for frame in tcp_frame_stream(host=config.frame_host, frame_port=config.frame_port, img_w=192, img_h=192, img_c=3, debug_show=False):
             if frame is None:
                 episode_done_now = False
 
@@ -131,7 +131,7 @@ def main():
                         UE_EVENT_STATE["episode_done_flag"] = False
 
                 if rollout_buffer:
-                    flush_rollout_buffer(rollout_buffer, ActorConfig.actor_id, last_step_cache)
+                    flush_rollout_buffer(rollout_buffer, config.actor_id, last_step_cache)
 
                 print("[stream] disconnected, closing recorder")
                 break
@@ -286,7 +286,7 @@ def main():
                     )
                     last_step_cache = None
 
-                flush_rollout_buffer(rollout_buffer, ActorConfig.actor_id, last_step_cache)
+                flush_rollout_buffer(rollout_buffer, config.actor_id, last_step_cache)
 
                 with UE_EVENT_LOCK:
                     UE_EVENT_STATE["episode_done_flag"] = False
@@ -431,7 +431,7 @@ def main():
             }
 
             if len(rollout_buffer) >= ROLLOUT_SAVE_EVERY or ue_episode_done:
-                flush_rollout_buffer(rollout_buffer, ActorConfig.actor_id, last_step_cache)
+                flush_rollout_buffer(rollout_buffer, config.actor_id, last_step_cache)
 
             print(
                 f"[t={frame_id_end:05d}] "
@@ -473,7 +473,7 @@ def main():
                 "seq": SEQ
             }
 
-            send_action(jsonMsg, action_client=get_osc_client(action_port=ActorConfig.ACTION_PORT))
+            send_action(jsonMsg, action_client=get_osc_client(host=config.ue_host, action_port=config.action_port))
 
             if POLICY_MODE == "impala":
                 decision_count+=1
@@ -505,7 +505,7 @@ def main():
         cv2.destroyAllWindows()
 
         if rollout_buffer:
-            flush_rollout_buffer(rollout_buffer, ActorConfig.actor_id)
+            flush_rollout_buffer(rollout_buffer, config.actor_id)
             print("[rollout] flushed remaining buffer on shutdown")
 
 def init_presence_state() -> dict:
@@ -593,4 +593,5 @@ def derive_rule_pred_name(info):
 #     print(f"Saved teacher sample to {out_path}")
     
 if __name__ == "__main__":
-    main()
+    config = parse_actor_config()
+    main(config)
