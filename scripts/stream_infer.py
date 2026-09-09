@@ -81,6 +81,11 @@ def main(config: ActorConfig):
             print(f"frame_port={config.frame_port}")
             print(f"action_port={config.action_port}")
             print(f"event_port={config.event_port}")
+
+            action_client = get_osc_client(
+                host=config.ue_host,
+                action_port=config.action_port,
+            )   
         receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=config.event_port)
         action_cls_model = load_action_cls_model(str(ACTION_CLS_WEIGHTS_PATH), device=device)
 
