@@ -82,7 +82,17 @@ def main() -> None:
                 if not data["rollout_profile"] == "train":
                     continue
 
+                if "actor_id" not in data.files:
+                    continue
+
+                if "actor_policy_step" not in data.files:
+                    continue
+
                 processed_any = True
+                actor_id = data["actor_id"].item()
+                policy_steps = data["actor_policy_step"]
+                min_policy_step = policy_steps.min()
+                max_policy_step = policy_steps.max()
 
                 unrolls = build_unrolls(
                     data,
@@ -108,7 +118,11 @@ def main() -> None:
                 )
                 global_step += 1
 
-                print(f"Step: {global_step}")
+                print(f"Actor: {actor_id}")
+                if max_policy_step == min_policy_step:
+                    print(f"Policy steps: {min_policy_step}")
+                else:
+                    print(f"Policy steps: {min_policy_step} -> {max_policy_step}")
                 print(f"Loss: {metrics['total_loss'].item()}")
                 print(f"Policy: {metrics['policy_loss'].item()}")
                 print(f"Value: {metrics['value_loss'].item()}")
