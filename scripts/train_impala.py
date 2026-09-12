@@ -119,18 +119,28 @@ def main() -> None:
                 global_step += 1
 
                 print(f"Actor: {actor_id}")
+                print(f"Step: {global_step}")
                 if max_policy_step == min_policy_step:
                     print(f"Policy steps: {min_policy_step}")
                 else:
                     print(f"Policy steps: {min_policy_step} -> {max_policy_step}")
                 print(f"Loss: {metrics['total_loss'].item()}")
                 print(f"Policy: {metrics['policy_loss'].item()}")
+                print(f"Action counts: {metrics['action_counts'].tolist()}")
+                print(f"v(s): {metrics['v(s)'].item()}")
                 print(f"Value: {metrics['value_loss'].item()}")
                 print(f"Entropy: {metrics['entropy'].item()}")
                 print(f"mean_rho: {metrics['mean_rho'].item()}")
+                print(f"min_rho: {metrics['min_rho'].item()}")
+                print(f"max_rho: {metrics['max_rho'].item()}")
+                print(f"rho_clip_fraction: {metrics['rho_clip_fraction'].item()}")
                 print(f"grad_norm: {metrics['grad_norm'].item()}")
                 print(f"Valid: {metrics['valid_steps'].item()}")
-
+                print(f"Reward sum: {metrics['reward_sum'].item()}")
+                print(f"Reward mean: {metrics['reward_mean'].item()}")
+                print(f"Reward min: {metrics['reward_min'].item()}")
+                print(f"Reward max: {metrics['reward_max'].item()}")
+                print(f"Reward nonzero ratio: {metrics['reward_nonzero_ratio'].item()}")
             learner_payload = {
                 "model_state_dict": actor_critic.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),

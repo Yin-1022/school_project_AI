@@ -165,13 +165,34 @@ def train_impala_batch(model, optimizer, batch_unrolls, max_grad_norm=40.0):
     valid_steps = valid_mask_tensor.sum()
     valid_rhos = rhos[valid_mask_tensor.bool()]
     mean_rho = valid_rhos.mean()
+    min_rho = valid_rhos.min()
+    max_rho = valid_rhos.max()
+    rho_clip_fraction = (
+        (valid_rhos > 1.0).float().mean()
+    )
+    valid_actions = action_tensor[valid_mask_tensor.bool()]
+
+    action_counts = torch.bincount(
+        valid_actions,
+        minlength=10,
+    )
 
     return {
         "total_loss": losses["total_loss"].detach(),
         "policy_loss": losses["policy_loss"].detach(),
+        "action_counts": action_counts.detach(),
+        "v(s)" : values.detach(),
         "value_loss": losses["value_loss"].detach(),
         "entropy": losses["entropy"].detach(),
         "grad_norm": grad_norm.detach(),
         "mean_rho": mean_rho.detach(),
+        "min_rho": min_rho.detach(),
+        "max_rho": max_rho.detach(),
+        "rho_clip_fraction": rho_clip_fraction.detach(),
         "valid_steps": valid_steps.detach(),
+        "reward_sum": reward_tensor.sum().detach(),
+        "reward_mean": reward_tensor.mean().detach(),
+        "reward_min": reward_tensor.min().detach(),
+        "reward_max": reward_tensor.max().detach(),
+        "reward_nonzero_ratio": (reward_tensor != 0).float().mean().detach(),
     }
