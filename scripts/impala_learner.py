@@ -162,7 +162,17 @@ def train_impala_batch(model, optimizer, batch_unrolls, max_grad_norm=40.0):
 
     optimizer.step()
 
+    valid_values = values[valid_mask_tensor.bool()]
+    value_mean = valid_values.mean()
+    value_min = valid_values.min()
+    value_max = valid_values.max()
     valid_steps = valid_mask_tensor.sum()
+    valid_rewards = reward_tensor[valid_mask_tensor.bool()]
+    reward_sum = valid_rewards.sum()
+    reward_mean = valid_rewards.mean()
+    reward_min = valid_rewards.min()
+    reward_max = valid_rewards.max()
+    reward_nonzero_ratio = (valid_rewards != 0).float().mean()
     valid_rhos = rhos[valid_mask_tensor.bool()]
     mean_rho = valid_rhos.mean()
     min_rho = valid_rhos.min()
@@ -181,7 +191,9 @@ def train_impala_batch(model, optimizer, batch_unrolls, max_grad_norm=40.0):
         "total_loss": losses["total_loss"].detach(),
         "policy_loss": losses["policy_loss"].detach(),
         "action_counts": action_counts.detach(),
-        "v(s)" : values.detach(),
+        "v(s)_mean": value_mean.detach(),
+        "v(s)_min": value_min.detach(),
+        "v(s)_max": value_max.detach(),
         "value_loss": losses["value_loss"].detach(),
         "entropy": losses["entropy"].detach(),
         "grad_norm": grad_norm.detach(),
@@ -190,9 +202,9 @@ def train_impala_batch(model, optimizer, batch_unrolls, max_grad_norm=40.0):
         "max_rho": max_rho.detach(),
         "rho_clip_fraction": rho_clip_fraction.detach(),
         "valid_steps": valid_steps.detach(),
-        "reward_sum": reward_tensor.sum().detach(),
-        "reward_mean": reward_tensor.mean().detach(),
-        "reward_min": reward_tensor.min().detach(),
-        "reward_max": reward_tensor.max().detach(),
+        "reward_sum": reward_sum.detach(),
+        "reward_mean": reward_mean.detach(),
+        "reward_min": reward_min.detach(),
+        "reward_max": reward_max.detach(),
         "reward_nonzero_ratio": (reward_tensor != 0).float().mean().detach(),
     }

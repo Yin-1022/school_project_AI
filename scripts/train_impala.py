@@ -127,7 +127,7 @@ def main() -> None:
                 print(f"Loss: {metrics['total_loss'].item()}")
                 print(f"Policy: {metrics['policy_loss'].item()}")
                 print(f"Action counts: {metrics['action_counts'].tolist()}")
-                print(f"v(s): {metrics['v(s)'].item()}")
+                print(f"v(s): mean={metrics['v(s)_mean'].item()}, min={metrics['v(s)_min'].item()}, max={metrics['v(s)_max'].item()}")
                 print(f"Value: {metrics['value_loss'].item()}")
                 print(f"Entropy: {metrics['entropy'].item()}")
                 print(f"mean_rho: {metrics['mean_rho'].item()}")
