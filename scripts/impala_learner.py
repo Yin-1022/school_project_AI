@@ -206,5 +206,5 @@ def train_impala_batch(model, optimizer, batch_unrolls, max_grad_norm=40.0):
         "reward_mean": reward_mean.detach(),
         "reward_min": reward_min.detach(),
         "reward_max": reward_max.detach(),
-        "reward_nonzero_ratio": (reward_tensor != 0).float().mean().detach(),
+        "reward_nonzero_ratio": reward_nonzero_ratio.detach(),
     }
