@@ -155,12 +155,12 @@ Work in progress
 
 1. 先執行python scripts/stream_infer.py --actor-id <actor_name> --frame-port <Number1> --action-port <Number2> --event-port <Number3>
 2. 於Terminal設定遊戲環境並開啟 => 
-        "UnrealEditor.exe路徑" `
-        "specialtopic.uproject路徑" `
-        -game `
-        -windowed `
-        -FramePort=<Number1> `
-        -ActionPort=<Number2> `
+        "UnrealEditor.exe路徑" \`
+        "specialtopic.uproject路徑" \`
+        -game \`
+        -windowed \`
+        -FramePort=<Number1> \`
+        -ActionPort=<Number2> \`
         -EventPort=<Number3>
 3. 執行scripts/train_impala.py
 4. 遊戲端進入戰鬥時，UE和Python端將會自動連線，模型就會運作
