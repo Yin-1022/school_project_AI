@@ -10,19 +10,19 @@
 - 建立遊戲與深度強化學習模型之間的即時互動架構。
 - 比較不同訓練方法與決策架構的行為及訓練效果
 
-本專案分為遊戲組和 AI 組來分工，運行方式如下：
-    遊戲組 — Unreal Engine Game System
-    玩家系統 / Boss 戰鬥系統 / 動畫 / 技能 / 場景 / UI / Game Flow
-        ↓
-        ↓ State、Frame、Event
-        ↓
-    AI 組 — Boss Decision System
-    Observation → Neural Network → Policy → Action
-        ↓
-        ↓ Action
-        ↓
-    遊戲組 — Execution
-    Boss 執行移動 / 攻擊 / 技能
+本專案分為遊戲組和 AI 組來分工，運行方式如下：  
+>遊戲組 — Unreal Engine Game System  
+玩家系統 / Boss 戰鬥系統 / 動畫 / 技能 / 場景 / UI / Game Flow  
+&emsp;↓  
+&emsp;↓ State、Frame、Event  
+&emsp;↓  
+AI 組 — Boss Decision System  
+Observation → Neural Network → Policy → Action  
+&emsp;↓  
+&emsp;↓ Action  
+&emsp;↓  
+遊戲組 — Execution  
+Boss 執行移動 / 攻擊 / 技能  
 
 此 repository 屬於本人負責的 IMPALA 部分，
 遊戲部分及 AI 組另一位組員做的模型則不在此repo裡。
@@ -122,26 +122,26 @@ Reward 設計則根據 Boss 與玩家互動時產生的遊戲事件與行為狀�
 ## Project Status
 Work in progress
 
-✅ Model <-> Game connection
-✅ Training data collecting methods
-✅ Behavior Cloning baseline
-✅ Actor-Critic based RL
-✅ IMPALA-based distributed training
-✅ Multi-actor IMPALA
-✅ Hierarchical Reward 機制
-✅ Action masking / decision constraint
-🚧 Reward mechanism optimization
-⬜ Training quality evaluation
-⬜ Ensemble learning with teammate's model 
+✅ Model <-> Game connection  
+✅ Training data collecting methods  
+✅ Behavior Cloning baseline  
+✅ Actor-Critic based RL  
+✅ IMPALA-based distributed training  
+✅ Multi-actor IMPALA  
+✅ Hierarchical Reward 機制  
+✅ Action masking / decision constraint  
+🚧 Reward mechanism optimization  
+⬜ Training quality evaluation  
+⬜ Ensemble learning with teammate's model  
 
 ## Repository Structure
 
-- scripts/
-    存放程式碼，其中重要檔案：
-    ├── stream_infer.py       # IMPALA actor and environment interaction
-    ├── impala_learner.py     # Central learner
-    ├── rollout_logger.py     # Trajectory logging
-    ├── train_impala.py       # Training entry point
+- scripts/  
+    存放程式碼，其中重要檔案：  
+    ├── stream_infer.py       # IMPALA actor and environment interaction  
+    ├── impala_learner.py     # Central learner  
+    ├── rollout_logger.py     # Trajectory logging  
+    ├── train_impala.py       # Training entry point  
 - data/meta
     存放模型權重
 - data/rollouts
@@ -153,17 +153,17 @@ Work in progress
 
 依賴 UE 遊戲端的環境。
 
-1. 先執行python scripts/stream_infer.py --actor-id <actor_name> --frame-port <Number1> --action-port <Number2> --event-port <Number3>
-2. 於Terminal設定遊戲環境並開啟 => 
-        "UnrealEditor.exe路徑" \`
-        "specialtopic.uproject路徑" \`
-        -game \`
-        -windowed \`
-        -FramePort=<Number1> \`
-        -ActionPort=<Number2> \`
-        -EventPort=<Number3>
-3. 執行scripts/train_impala.py
-4. 遊戲端進入戰鬥時，UE和Python端將會自動連線，模型就會運作
+1. 先執行python scripts/stream_infer.py --actor-id <actor_name> --frame-port <Number_1> --action-port <Number_2> --event-port <Number_3>  
+2. 於Terminal設定遊戲環境並開啟 =>  
+        "UnrealEditor.exe路徑" \`  
+        "specialtopic.uproject路徑" \`  
+        -game \`  
+        -windowed \`  
+        -FramePort=<Number_1> \`  
+        -ActionPort=<Number_2> \`  
+        -EventPort=<Number_3>  
+3. 執行scripts/train_impala.py  
+4. 遊戲端進入戰鬥時，UE和Python端將會自動連線，模型就會運作  
 
 ## Limitations
 
