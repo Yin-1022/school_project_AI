@@ -28,7 +28,8 @@ Boss 執行移動 / 攻擊 / 技能
 遊戲部分及 AI 組另一位組員做的模型則不在此repo裡。
 
 ## My Contribution
-本人擔任專題主負責人及 AI 組組長，負責IMPALA模型及其架構之實作
+本人擔任專題主負責人及 AI 組組長，主要負責 IMPALA 路線之模型、訓練架構與 Unreal Engine 整合，
+並完成前期 Behavior Cloning 與 Actor-Critic baseline 實作。
 
 - Data preparation and collection
 - Behavior Cloning baseline implementation
@@ -43,17 +44,25 @@ Boss 執行移動 / 攻擊 / 技能
 
 ## System Architecture
 
-    UE Game
-    ↓ observation / events
-    Actor
-    ↓ actions
-    UE Game
-
-    Actor
-    ↓ trajectories
-    Learner
-    ↓ updated weights
-    Actor
+                              ┌───────────────┐
+                              │    Learner    │◄────┐
+                              └───────┬───────┘ 　  │
+                                      │             │
+                               Updated Weights      │
+                                      │             │
+                                      ▼             │
+    ┌─────────────────┐       ┌───────────────┐     │
+    │                 │──────►│               │     │
+    │  Unreal Engine  │ State │     Actor     │     │
+    │  Game Instance  │ Event │               │     │
+    │                 │ Frame │               │     │
+    └────────▲────────┘       └───────┬───────┘     │
+             │                        │             │
+             │ Action                 │ Rollout     │
+             │                        │             │
+             └────────────────────────│             │
+                                      │             │
+                                      └─────────────┘
 
 ## Repository Scope
 
@@ -109,15 +118,26 @@ Reward 設計則根據 Boss 與玩家互動時產生的遊戲事件與行為狀�
 ## Current Capabilities
 
 - IMPALA模型已可執行即時推論，並回傳所選行為給遊戲環境
+- 可將遊戲互動過程整理為 rollout，提供 Learner 持續訓練
 - 可同時執行多個Actor以訓練單一Learner
-- 已整合 Actor–Learner之間的溝通與跨Actor之間模型權重的同步
+- 已整合 Actor–Learner 通訊與多 Actor 模型權重同步機制
 
 ## Preliminary Experiments
 
-已可比對 baseline policy 和 action-masked variant 
-在 decision behavior 和 intervention frequency.
+目前已建立 baseline policy 與 action-masked variant 的比較流程，
+並以 decision behavior 與 intervention frequency 作為初步觀察指標。
 
-目前仍然只有初步比對，待 Reward 機制與訊號機制完善會再做進一步比對
+在目前單次測試中：
+
+| Configuration | Transitions | Interventions | Intervention Rate |
+| --- | ---: | ---: | ---: |
+| Baseline | 601 | 151 | 25.12% |
+| Action-masked | 727 | 175 | 24.07% |
+
+兩者目前的 intervention rate 接近。
+由於實驗次數、Reward Design 與環境訊號仍持續調整，
+現階段不據此判定 Action Masking 對策略品質具有顯著改善，
+後續將透過更多訓練與重複測試進一步評估
 
 ## Project Status
 Work in progress
@@ -128,9 +148,9 @@ Work in progress
 ✅ Actor-Critic based RL  
 ✅ IMPALA-based distributed training  
 ✅ Multi-actor IMPALA  
-✅ Hierarchical Reward 機制  
+✅ Hierarchical Reward architecture
 ✅ Action masking / decision constraint  
-🚧 Reward mechanism optimization  
+🚧 Reward signal / weighting optimization
 ⬜ Training quality evaluation  
 ⬜ Ensemble learning with teammate's model  
 
@@ -143,7 +163,7 @@ Work in progress
     ├── rollout_logger.py     # Trajectory logging  
     ├── train_impala.py       # Training entry point  
 - data/meta
-    存放模型權重
+    存放訓練 checkpoint 與模型權重相關資料
 - data/rollouts
     存放訓練資料
 - docs/
@@ -167,4 +187,4 @@ Work in progress
 
 ## Limitations
 
-目前遊戲環境未包含在 repo，所以無法單獨重現完整遊戲實驗。
+目前遊戲環境不包含在本 repo，所以無法單靠本 repo 內容重現完整遊戲實驗。
