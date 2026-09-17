@@ -14,7 +14,8 @@ def append_rollout_step(buffer, frames, extra, logits, probs, behavior_probs,
                         pol_state, frame_id_end, fire_frame,
                         ue_att1_start, ue_att1_end,
                         ue_att2_start, ue_att2_end,
-                        ue_boss_hit_count, ue_player_hit_count, ue_episode_done,
+                        ue_boss_hit_count, ue_player_hit_count, 
+                        ue_episode_done, ue_episode_result,
                         reward_high, reward_medium, reward_low, done, 
                         action_mask=None, actor_policy_step=0):
     step = {
@@ -42,6 +43,7 @@ def append_rollout_step(buffer, frames, extra, logits, probs, behavior_probs,
         "ue_boss_hit_count": np.int64(ue_boss_hit_count),
         "ue_player_hit_count": np.int64(ue_player_hit_count),
         "ue_episode_done": np.int64(1 if ue_episode_done else 0),
+        "ue_episode_result": np.int64(ue_episode_result),
         "action_mask": np.asarray(action_mask, dtype=np.bool_),
         "actor_policy_step": np.int64(actor_policy_step),
         # "value": np.float32(
@@ -111,6 +113,7 @@ def flush_rollout_buffer(buffer, actor_id, bootstrap_cathe=None):
         "ue_boss_hit_count": np.asarray([x["ue_boss_hit_count"] for x in buffer],dtype=np.int64),
         "ue_player_hit_count": np.asarray([x["ue_player_hit_count"] for x in buffer],dtype=np.int64),
         "ue_episode_done": np.asarray([x["ue_episode_done"] for x in buffer],dtype=np.int64),
+        "ue_episode_result": np.asarray([x["ue_episode_result"] for x in buffer],dtype=np.int64),
 
         "action_mask": np.stack([x["action_mask"] for x in buffer],axis=0),
         "actor_policy_step": np.asarray([x["actor_policy_step"] for x in buffer],dtype=np.int64),
@@ -152,13 +155,21 @@ def compute_reward_channels(
         info,final_action,
         ue_att1_start, ue_att1_end, ue_att2_start, ue_att2_end,
         ue_boss_hit_count, ue_player_hit_count,
+        ue_episode_result
     ):
 
     high_reward = 0.0
     medium_reward = 0.0
     low_reward = 0.0
+    TERMINAL_REWARD = 10.0
 
     #High level shaping reward
+    if ue_episode_result == 1:
+        high_reward += TERMINAL_REWARD
+    elif ue_episode_result == -1:
+        high_reward -= TERMINAL_REWARD
+    elif ue_episode_result == 0:
+        high_reward += 0.0
 
     #Medium level shaping reward
     medium_reward += ue_player_hit_count * 1.0
@@ -208,6 +219,7 @@ def append_cached_step(rollout_buffer, cache, done=0):
         ue_att2_end=cache["ue_att2_end"],
         ue_boss_hit_count=cache["ue_boss_hit_count"],
         ue_player_hit_count=cache["ue_player_hit_count"],
+        ue_episode_result=cache["ue_episode_result"]
     )
 
     append_rollout_step(
@@ -231,6 +243,7 @@ def append_cached_step(rollout_buffer, cache, done=0):
         ue_boss_hit_count=cache["ue_boss_hit_count"],
         ue_player_hit_count=cache["ue_player_hit_count"],
         ue_episode_done=cache["ue_episode_done"],
+        ue_episode_result=cache["ue_episode_result"],
 
         reward_high=rewards["high_reward"],
         reward_medium=rewards["medium_reward"],

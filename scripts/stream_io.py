@@ -54,6 +54,18 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=12346):
             UE_EVENT_STATE["episode_start_pulse"] = True
         print(f"[← UE] 回合開始！args: {args}\n")
 
+    def game_win(address, *args):
+        # Player win = Boss loss
+        with UE_EVENT_LOCK:
+            UE_EVENT_STATE["episode_done_flag"] = True
+            UE_EVENT_STATE["episode_result"] = -1
+
+    def game_lost(address, *args):
+        # Player lost = Boss win
+        with UE_EVENT_LOCK:
+            UE_EVENT_STATE["episode_done_flag"] = True
+            UE_EVENT_STATE["episode_result"] = 1
+
     dp = dispatcher.Dispatcher()
     dp.map("/att1start", on_att1_start)
     dp.map("/att1end", on_att1_end)
@@ -63,6 +75,8 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=12346):
     dp.map("/player_health", on_health_changed)
     dp.map("/game_over", on_episode_done)
     dp.map("/aigame_start", on_aigame_start)
+    dp.map("/game_win",   game_win)
+    dp.map("/game_lost",   game_lost)
     dp.set_default_handler(on_fallback)
 
     server = osc_server.ThreadingOSCUDPServer(("0.0.0.0", event_port), dp)
@@ -95,15 +109,15 @@ def send_action(msg, action_client=None):
         angle = -50.0
 
     args = [
-        action_name,                            # string
-        float(angle),                           # float
-        int(msg["ts_frame"]),                   # int
-        int(msg["fire_frame"]),                 # int
-        int(msg["hold_until"]),                 # int
-        float(msg["meta"]["conf"]),             # float
-        str(msg["meta"]["phase"]),              # string
-        str(msg["meta"]["search_hint"] or ""),  # string
-        int(msg["seq"]),                        # int
+        action_name,                              # string
+        float(angle),                             # float
+        # int(msg["ts_frame"]),                   # int
+        # int(msg["fire_frame"]),                 # int
+        # int(msg["hold_until"]),                 # int
+        # float(msg["meta"]["conf"]),             # float
+        # str(msg["meta"]["phase"]),              # string
+        # str(msg["meta"]["search_hint"] or ""),  # string
+        # int(msg["seq"]),                        # int
     ]
 
     action_client.send_message("/enemy/action", args)
@@ -171,3 +185,4 @@ def reset_ue_episode_state(UE_EVENT_LOCK, UE_EVENT_STATE):
 
         UE_EVENT_STATE["episode_done_flag"] = False
         UE_EVENT_STATE["episode_start_pulse"] = False
+        UE_EVENT_STATE["ue_episode_result"] = 0

@@ -59,6 +59,7 @@ UE_EVENT_STATE = {
     "player_hit_pulse": False,
     "episode_done_flag": False,
     "episode_start_pulse": False,
+    "episode_result": 0,
 }
 UE_EVENT_LOCK = threading.Lock()
 PRESENCE_RECORD_MODE = True
@@ -113,17 +114,22 @@ def main(config: ActorConfig):
         for frame in tcp_frame_stream(host=config.frame_host, frame_port=config.frame_port, img_w=192, img_h=192, img_c=3, debug_show=False):
             if frame is None:
                 episode_done_now = False
+                episode_result_now = 0
 
                 # 給 OSC callback 一點時間把 game_over 寫進 shared state
                 for _ in range(10):   # 最多等 10 * 0.02 = 0.2 秒
                     with UE_EVENT_LOCK:
                         episode_done_now = UE_EVENT_STATE["episode_done_flag"]
+                        episode_result_now = UE_EVENT_STATE["episode_result"]
                     if episode_done_now:
                         break
                     time.sleep(0.02)
 
                 if episode_done_now:
                     print("[UE event] episode done (disconnect terminal append)")
+
+                    if last_step_cache is not None:
+                        last_step_cache["ue_episode_result"] = episode_result_now
 
                     appended = append_last_step(
                         rollout_buffer=rollout_buffer,
@@ -271,6 +277,7 @@ def main(config: ActorConfig):
                 ue_boss_hit = UE_EVENT_STATE["boss_hit_pulse"]
                 ue_player_hit = UE_EVENT_STATE["player_hit_pulse"]
                 ue_episode_done = UE_EVENT_STATE["episode_done_flag"]
+                ue_episode_result = UE_EVENT_STATE["episode_result"]
 
                 # pulse 讀完就清掉
                 UE_EVENT_STATE["att1_start_pulse"] = False
@@ -299,6 +306,7 @@ def main(config: ActorConfig):
 
                 if ue_episode_done:
                     last_step_cache["ue_episode_done"] = True
+                    last_step_cache["ue_episode_result"] = ue_episode_result
             
             if ue_att1_start:
                 print("[UE event] boss normal attack start")
@@ -461,6 +469,7 @@ def main(config: ActorConfig):
                 "ue_boss_hit_count": 0,
                 "ue_player_hit_count": 0,
                 "ue_episode_done": False,
+                "ue_episode_result": 0,
 
                 "action_mask": action_mask.copy(),
                 "actor_policy_step": loaded_step,

@@ -9,8 +9,9 @@ def resolve_priority_reward(
     reward_low: float,
     ue_player_hit_count: int,
     ue_boss_hit_count: int,
+    ue_episode_result: int,
 ) -> dict:
-    high_active = False
+    high_active = ue_episode_result != 0
 
     medium_active = (
         ue_player_hit_count > 0
