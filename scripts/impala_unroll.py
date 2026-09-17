@@ -53,7 +53,8 @@ def compute_selected_reward(data, start, valid_length):
             reward_medium=float(data["reward_medium"][data_index]),
             reward_low=float(data["reward_low"][data_index]),
             ue_player_hit_count=int(data["ue_player_hit_count"][data_index]),
-            ue_boss_hit_count=int(data["ue_boss_hit_count"][data_index])
+            ue_boss_hit_count=int(data["ue_boss_hit_count"][data_index]),
+            ue_episode_result=int(data["ue_episode_result"][data_index])
             )
         selected_reward[i] = resolved["reward"]
         reward_priority[i] = resolved["priority"]
@@ -73,6 +74,7 @@ def build_unrolls(data, unroll_length=20, has_behavior_probs=False):
         "ue_boss_hit_count",
         "done",
         "probs",
+        "ue_episode_result",
     ]
 
     missing = [

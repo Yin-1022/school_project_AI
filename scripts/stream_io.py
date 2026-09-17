@@ -45,8 +45,6 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=12346):
         print(f"[← UE] 玩家血量：{health}")
 
     def on_episode_done(address, *args):
-        with UE_EVENT_LOCK:
-            UE_EVENT_STATE["episode_done_flag"] = True
         print(f"[← UE] 回合結束！args: {args}\n")
 
     def on_aigame_start(address, *args):
@@ -185,4 +183,4 @@ def reset_ue_episode_state(UE_EVENT_LOCK, UE_EVENT_STATE):
 
         UE_EVENT_STATE["episode_done_flag"] = False
         UE_EVENT_STATE["episode_start_pulse"] = False
-        UE_EVENT_STATE["ue_episode_result"] = 0
+        UE_EVENT_STATE["episode_result"] = 0
