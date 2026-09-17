@@ -158,9 +158,31 @@ def main(config: ActorConfig):
 
             with UE_EVENT_LOCK:
                 episode_started = UE_EVENT_STATE["episode_start_pulse"]
+                episode_done = UE_EVENT_STATE["episode_done_flag"]
+                episode_result = UE_EVENT_STATE["episode_result"]
 
                 if episode_started:
                     UE_EVENT_STATE["episode_start_pulse"] = False
+
+            if episode_done and episode_result and last_step_cache is not None:
+                last_step_cache["ue_episode_done"] = True
+                last_step_cache["ue_episode_result"] = episode_result
+
+                appended = append_last_step(
+                    rollout_buffer=rollout_buffer,
+                    last_step_cache=last_step_cache,
+                )
+
+                if appended:
+                    print("[rollout] terminal step appended on episode_done")
+
+                with UE_EVENT_LOCK:
+                    UE_EVENT_STATE["episode_done_flag"] = False
+                    UE_EVENT_STATE["episode_result"] = 0
+
+                if rollout_buffer:
+                    flush_rollout_buffer(rollout_buffer, config.actor_id, last_step_cache)
+                last_step_cache = None
 
             if episode_started:
                 print("[episode] New episode started, resetting runtime state")

@@ -161,7 +161,7 @@ def compute_reward_channels(
     high_reward = 0.0
     medium_reward = 0.0
     low_reward = 0.0
-    TERMINAL_REWARD = 10.0
+    TERMINAL_REWARD = 5.0
 
     #High level shaping reward
     if ue_episode_result == 1:

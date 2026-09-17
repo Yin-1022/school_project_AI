@@ -181,6 +181,4 @@ def reset_ue_episode_state(UE_EVENT_LOCK, UE_EVENT_STATE):
         UE_EVENT_STATE["boss_hit_pulse"] = False
         UE_EVENT_STATE["player_hit_pulse"] = False
 
-        UE_EVENT_STATE["episode_done_flag"] = False
         UE_EVENT_STATE["episode_start_pulse"] = False
-        UE_EVENT_STATE["episode_result"] = 0
