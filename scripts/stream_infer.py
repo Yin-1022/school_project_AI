@@ -8,7 +8,7 @@ from actor_config import ActorConfig, parse_actor_config
 from presence_data import save_presence_sample
 from visibility import update as vis_update
 from policy import init_state as policy_init, step as rule_policy_step
-from stream_io import send_action, receive_from_ue, tcp_frame_stream, get_osc_client
+from stream_io import reset_ue_episode_state, send_action, receive_from_ue, tcp_frame_stream, get_osc_client
 from observation_builder import build_frame_tensor, build_extra_tensor, ACTION_NAME_TO_ID
 from policy_inference import (
     load_actor_critic_model, load_model, 
@@ -58,6 +58,7 @@ UE_EVENT_STATE = {
     "boss_hit_pulse": False,
     "player_hit_pulse": False,
     "episode_done_flag": False,
+    "episode_start_pulse": False,
 }
 UE_EVENT_LOCK = threading.Lock()
 PRESENCE_RECORD_MODE = True
@@ -135,13 +136,43 @@ def main(config: ActorConfig):
                     with UE_EVENT_LOCK:
                         UE_EVENT_STATE["episode_done_flag"] = False
 
-                if rollout_buffer:
-                    flush_rollout_buffer(rollout_buffer, config.actor_id, last_step_cache)
+                    if rollout_buffer:
+                        flush_rollout_buffer(rollout_buffer, config.actor_id, last_step_cache)
+                else:
+                        if rollout_buffer:
+                            print(
+                                f"[rollout] dropping {len(rollout_buffer)} steps "
+                                "on disconnect without game_over"
+                            )
+                            rollout_buffer.clear()
 
-                print("[stream] disconnected, closing recorder")
-                break
-                #continue
-            
+                print("[stream] disconnected, waiting for UE reconnect")
+                last_step_cache = None
+                continue
+
+            with UE_EVENT_LOCK:
+                episode_started = UE_EVENT_STATE["episode_start_pulse"]
+
+                if episode_started:
+                    UE_EVENT_STATE["episode_start_pulse"] = False
+
+            if episode_started:
+                print("[episode] New episode started, resetting runtime state")
+                presence_state = init_presence_state()
+                vis_state = None
+                pol_state = policy_init()
+
+                frame_ring_buffer.clear()
+
+                pushed_frames = 0
+                recv_frames = 0
+
+                last_step_cache = None
+
+                action_lock_until_frame = -1
+                locked_action = None
+                reset_ue_episode_state()
+
             recv_frames += 1
 
             if recv_frames % sample_every != 0:

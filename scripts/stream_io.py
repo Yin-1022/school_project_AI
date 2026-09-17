@@ -5,6 +5,8 @@ import socket
 import numpy as np
 import cv2
 
+from stream_infer import UE_EVENT_LOCK, UE_EVENT_STATE
+
 def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=12346):
     def on_att1_start(address, *args):
         with UE_EVENT_LOCK:
@@ -49,6 +51,11 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=12346):
             UE_EVENT_STATE["episode_done_flag"] = True
         print(f"[← UE] 回合結束！args: {args}\n")
 
+    def on_aigame_start(address, *args):
+        with UE_EVENT_LOCK:
+            UE_EVENT_STATE["episode_start_pulse"] = True
+        print(f"[← UE] 回合開始！args: {args}\n")
+
     dp = dispatcher.Dispatcher()
     dp.map("/att1start", on_att1_start)
     dp.map("/att1end", on_att1_end)
@@ -57,6 +64,7 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=12346):
     dp.map("/enemy_take_damage", on_boss_hit)
     dp.map("/player_health", on_health_changed)
     dp.map("/game_over", on_episode_done)
+    dp.map("/aigame_start", on_aigame_start)
     dp.set_default_handler(on_fallback)
 
     server = osc_server.ThreadingOSCUDPServer(("0.0.0.0", event_port), dp)
@@ -100,7 +108,7 @@ def send_action(msg, action_client=None):
         int(msg["seq"]),                        # int
     ]
 
-    action_client.send_message("/boss/action", args)
+    action_client.send_message("/enemy/action", args)
 
 def tcp_frame_stream(host='127.0.0.1', frame_port=9999, img_w=192, img_h=192, img_c=3, debug_show=False):
     frame_size = img_w * img_h * img_c
@@ -149,3 +157,19 @@ def tcp_frame_stream(host='127.0.0.1', frame_port=9999, img_w=192, img_h=192, im
                 conn.close()
             if debug_show:
                 cv2.destroyAllWindows()
+
+def reset_ue_episode_state():
+    with UE_EVENT_LOCK:
+        UE_EVENT_STATE["att1_active"] = False
+        UE_EVENT_STATE["att1_start_pulse"] = False
+        UE_EVENT_STATE["att1_end_pulse"] = False
+
+        UE_EVENT_STATE["att2_active"] = False
+        UE_EVENT_STATE["att2_start_pulse"] = False
+        UE_EVENT_STATE["att2_end_pulse"] = False
+
+        UE_EVENT_STATE["boss_hit_pulse"] = False
+        UE_EVENT_STATE["player_hit_pulse"] = False
+
+        UE_EVENT_STATE["episode_done_flag"] = False
+        UE_EVENT_STATE["episode_start_pulse"] = False
