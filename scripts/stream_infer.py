@@ -141,6 +141,7 @@ def main(config: ActorConfig):
 
                     with UE_EVENT_LOCK:
                         UE_EVENT_STATE["episode_done_flag"] = False
+                        UE_EVENT_STATE["episode_result"] = 0
 
                     if rollout_buffer:
                         flush_rollout_buffer(rollout_buffer, config.actor_id, last_step_cache)
@@ -356,6 +357,7 @@ def main(config: ActorConfig):
 
                 with UE_EVENT_LOCK:
                     UE_EVENT_STATE["episode_done_flag"] = False
+                    UE_EVENT_STATE["episode_result"] = 0
 
                 continue
 
