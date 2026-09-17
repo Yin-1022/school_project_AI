@@ -5,8 +5,6 @@ import socket
 import numpy as np
 import cv2
 
-from stream_infer import UE_EVENT_LOCK, UE_EVENT_STATE
-
 def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=12346):
     def on_att1_start(address, *args):
         with UE_EVENT_LOCK:
@@ -158,7 +156,7 @@ def tcp_frame_stream(host='127.0.0.1', frame_port=9999, img_w=192, img_h=192, im
             if debug_show:
                 cv2.destroyAllWindows()
 
-def reset_ue_episode_state():
+def reset_ue_episode_state(UE_EVENT_LOCK, UE_EVENT_STATE):
     with UE_EVENT_LOCK:
         UE_EVENT_STATE["att1_active"] = False
         UE_EVENT_STATE["att1_start_pulse"] = False

@@ -139,12 +139,12 @@ def main(config: ActorConfig):
                     if rollout_buffer:
                         flush_rollout_buffer(rollout_buffer, config.actor_id, last_step_cache)
                 else:
-                        if rollout_buffer:
-                            print(
-                                f"[rollout] dropping {len(rollout_buffer)} steps "
-                                "on disconnect without game_over"
-                            )
-                            rollout_buffer.clear()
+                    if rollout_buffer:
+                        print(
+                            f"[rollout] dropping {len(rollout_buffer)} steps "
+                            "on disconnect without game_over"
+                        )
+                        rollout_buffer.clear()
 
                 print("[stream] disconnected, waiting for UE reconnect")
                 last_step_cache = None
@@ -171,7 +171,7 @@ def main(config: ActorConfig):
 
                 action_lock_until_frame = -1
                 locked_action = None
-                reset_ue_episode_state()
+                reset_ue_episode_state(UE_EVENT_LOCK=UE_EVENT_LOCK, UE_EVENT_STATE=UE_EVENT_STATE)
 
             recv_frames += 1
 
