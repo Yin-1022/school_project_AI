@@ -125,9 +125,8 @@ def send_action(msg, action_client=None):
     elif action_name == "SearchTurnLeft":
         action_name = "SearchTurn"
         angle = -50.0
-    elif action_name == "StuckTurn":
-        action_name = "SearchTurn"
-        angle = msg["angle"]
+    elif action_name == "SearchTurn" and "angle" in msg:
+        angle = float(msg["angle"])
     elif action_name == "PatrolStepRight":
         action_name = "PatrolStep"
         angle = 50.0
@@ -214,3 +213,4 @@ def reset_ue_episode_state(UE_EVENT_LOCK, UE_EVENT_STATE):
         UE_EVENT_STATE["player_hit_pulse"] = False
 
         UE_EVENT_STATE["episode_start_pulse"] = False
+        UE_EVENT_STATE["cantmove_pulse"] = False

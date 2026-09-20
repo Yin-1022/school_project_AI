@@ -203,6 +203,8 @@ def main(config: ActorConfig):
 
                 pushed_frames = 0
                 recv_frames = 0
+                recovery_active = False
+                recovery_stage = 0
 
                 last_step_cache = None
 
@@ -354,7 +356,7 @@ def main(config: ActorConfig):
                         "action": action,
                     }
                     send_action(jsonMsg, action_client=action_client)
-                    recover_stage = 2
+                    recovery_stage = 2
                     continue
 
             if last_step_cache is not None:
