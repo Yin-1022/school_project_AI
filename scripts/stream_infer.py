@@ -64,6 +64,7 @@ UE_EVENT_STATE = {
     "episode_done_flag": False,
     "episode_start_pulse": False,
     "episode_result": 0,
+    "cantmove_pulse": False,
 }
 UE_EVENT_LOCK = threading.Lock()
 PRESENCE_RECORD_MODE = True
@@ -111,6 +112,9 @@ def main(config: ActorConfig):
         decision_count = 0
         action_lock_until_frame = -1
         locked_action = None
+        recovery_active = False
+        recovery_stage = 0
+        recovery_turn_sign = 1
         global SEQ
 
         print("ACTION_MASK_MODE: ", ACTION_MASK_MODE)
@@ -324,6 +328,15 @@ def main(config: ActorConfig):
                 ue_player_hit = UE_EVENT_STATE["player_hit_pulse"]
                 ue_episode_done = UE_EVENT_STATE["episode_done_flag"]
                 ue_episode_result = UE_EVENT_STATE["episode_result"]
+                cantmove = UE_EVENT_STATE["cantmove_pulse"]
+
+                if cantmove:
+                    UE_EVENT_STATE["cantmove_pulse"] = False
+
+                if cantmove and not recovery_active:
+                    recovery_active = True
+                    recovery_stage = 1
+                    print("[recovery] cantmove detected -> start recovery")
 
                 # pulse 讀完就清掉
                 UE_EVENT_STATE["att1_start_pulse"] = False
@@ -332,6 +345,17 @@ def main(config: ActorConfig):
                 UE_EVENT_STATE["att2_end_pulse"] = False
                 UE_EVENT_STATE["boss_hit_pulse"] = False
                 UE_EVENT_STATE["player_hit_pulse"] = False
+
+            if recovery_active:
+                if recovery_stage == 1:
+                    # evadeBack
+                    action = "EvadeBack"
+                    jsonMsg = {
+                        "action": action,
+                    }
+                    send_action(jsonMsg, action_client=action_client)
+                    recover_stage = 2
+                    continue
 
             if last_step_cache is not None:
                 if ue_player_hit:
@@ -415,6 +439,23 @@ def main(config: ActorConfig):
                     done=0,
                 )
                 last_step_cache = None
+
+            if recovery_active and recovery_stage == 2:
+                recovery_angle = 90.0 * recovery_turn_sign
+
+                send_action(
+                    {
+                        "action": "SearchTurn",
+                        "angle": recovery_angle,
+                    },
+                    action_client=action_client,
+                )
+
+                recovery_active = False
+                recovery_stage = 0
+                recovery_turn_sign *= -1
+
+                continue
 
             action_mask = build_action_mask(pol_state, frame_id_end, info, mode=ACTION_MASK_MODE)
 

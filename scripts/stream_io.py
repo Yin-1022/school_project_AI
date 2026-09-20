@@ -1,4 +1,4 @@
-from time import time
+import time
 
 from pythonosc import dispatcher, osc_server
 from pythonosc.udp_client import SimpleUDPClient
@@ -84,6 +84,11 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=12346):
             UE_EVENT_STATE["episode_result"] = 1
         print(f"[← UE] Boss 勝利！\n")
 
+    def on_cantmove(address, *args):
+        with UE_EVENT_LOCK:
+            UE_EVENT_STATE["cantmove_pulse"] = True
+        print(f"[← UE] Boss cant move! args: {args}")
+
     dp = dispatcher.Dispatcher()
     dp.map("/att1start", on_att1_start)
     dp.map("/att1end", on_att1_end)
@@ -95,6 +100,7 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=12346):
     dp.map("/aigame_start", on_aigame_start)
     dp.map("/game_win",   game_win)
     dp.map("/game_lost",   game_lost)
+    dp.map("/cantmove", on_cantmove)
     dp.set_default_handler(on_fallback)
 
     server = osc_server.ThreadingOSCUDPServer(("0.0.0.0", event_port), dp)
@@ -119,6 +125,9 @@ def send_action(msg, action_client=None):
     elif action_name == "SearchTurnLeft":
         action_name = "SearchTurn"
         angle = -50.0
+    elif action_name == "StuckTurn":
+        action_name = "SearchTurn"
+        angle = msg["angle"]
     elif action_name == "PatrolStepRight":
         action_name = "PatrolStep"
         angle = 50.0
