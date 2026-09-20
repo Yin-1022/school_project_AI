@@ -1,3 +1,5 @@
+from time import time
+
 from pythonosc import dispatcher, osc_server
 from pythonosc.udp_client import SimpleUDPClient
 import threading
@@ -5,29 +7,45 @@ import socket
 import numpy as np
 import cv2
 
+ATT1_DURATION_SEC = 52 / 30.0
+ATT2_DURATION_SEC = 69 / 30.0
+ATTACK_TIMEOUT_MARGIN_SEC = 0.15
+
 def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=12346):
     def on_att1_start(address, *args):
         with UE_EVENT_LOCK:
             UE_EVENT_STATE["att1_active"] = True
             UE_EVENT_STATE["att1_start_pulse"] = True
+            UE_EVENT_STATE["att1_deadline"] = (
+                time.monotonic()
+                + ATT1_DURATION_SEC
+                + ATTACK_TIMEOUT_MARGIN_SEC
+            )
         print(f"[← UE] Boss普攻開始！args: {args}\n")
 
     def on_att1_end(address, *args):
         with UE_EVENT_LOCK:
             UE_EVENT_STATE["att1_active"] = False
             UE_EVENT_STATE["att1_end_pulse"] = True
+            UE_EVENT_STATE["att1_deadline"] = None
         print(f"[← UE] Boss普攻結束！args: {args}\n")
 
     def on_att2_start(address, *args):
         with UE_EVENT_LOCK:
             UE_EVENT_STATE["att2_active"] = True
             UE_EVENT_STATE["att2_start_pulse"] = True
+            UE_EVENT_STATE["att2_deadline"] = (
+                time.monotonic()
+                + ATT2_DURATION_SEC
+                + ATTACK_TIMEOUT_MARGIN_SEC
+            )
         print(f"[← UE] Boss技能1開始！args: {args}\n")
 
     def on_att2_end(address, *args):
         with UE_EVENT_LOCK:
             UE_EVENT_STATE["att2_active"] = False
             UE_EVENT_STATE["att2_end_pulse"] = True
+            UE_EVENT_STATE["att2_deadline"] = None
         print(f"[← UE] Boss技能1結束！args: {args}\n")
 
     def on_fallback(address, *args):
@@ -57,12 +75,14 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=12346):
         with UE_EVENT_LOCK:
             UE_EVENT_STATE["episode_done_flag"] = True
             UE_EVENT_STATE["episode_result"] = -1
+        print(f"[← UE] Boss 被擊敗！\n")
 
     def game_lost(address, *args):
         # Player lost = Boss win
         with UE_EVENT_LOCK:
             UE_EVENT_STATE["episode_done_flag"] = True
             UE_EVENT_STATE["episode_result"] = 1
+        print(f"[← UE] Boss 勝利！\n")
 
     dp = dispatcher.Dispatcher()
     dp.map("/att1start", on_att1_start)
@@ -177,6 +197,9 @@ def reset_ue_episode_state(UE_EVENT_LOCK, UE_EVENT_STATE):
         UE_EVENT_STATE["att2_active"] = False
         UE_EVENT_STATE["att2_start_pulse"] = False
         UE_EVENT_STATE["att2_end_pulse"] = False
+
+        UE_EVENT_STATE["att1_deadline"] = None
+        UE_EVENT_STATE["att2_deadline"] = None
 
         UE_EVENT_STATE["boss_hit_pulse"] = False
         UE_EVENT_STATE["player_hit_pulse"] = False

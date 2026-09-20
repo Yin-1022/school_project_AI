@@ -25,6 +25,7 @@ from action_postprocess import apply_action_with_state
 from rollout_logger import append_cached_step, flush_rollout_buffer, append_last_step
 import threading
 import time
+from time import monotonic
 from constant import (
     ACTION_ID_TO_NAME,
     ROLLOUT_SAVE_EVERY,
@@ -54,6 +55,9 @@ UE_EVENT_STATE = {
     "att2_active": False,
     "att2_start_pulse": False,
     "att2_end_pulse": False,
+
+    "att1_deadline": None,
+    "att2_deadline": None,
 
     "boss_hit_pulse": False,
     "player_hit_pulse": False,
@@ -116,7 +120,7 @@ def main(config: ActorConfig):
                 episode_done_now = False
                 episode_result_now = 0
 
-                # 給 OSC callback 一點時間把 game_over 寫進 shared state
+                # 給 OSC callback 一點時間把 terminal result 寫進 shared state
                 for _ in range(10):   # 最多等 10 * 0.02 = 0.2 秒
                     with UE_EVENT_LOCK:
                         episode_done_now = UE_EVENT_STATE["episode_done_flag"]
@@ -149,7 +153,7 @@ def main(config: ActorConfig):
                     if rollout_buffer:
                         print(
                             f"[rollout] dropping {len(rollout_buffer)} steps "
-                            "on disconnect without game_over"
+                            "on disconnect without terminal result"
                         )
                         rollout_buffer.clear()
 
@@ -287,8 +291,27 @@ def main(config: ActorConfig):
             )
 
             extra_tensor = build_extra_tensor(info, pol_state, frame_id_end)
+            now = monotonic()
 
             with UE_EVENT_LOCK:
+                if (
+                    UE_EVENT_STATE["att1_active"]
+                    and UE_EVENT_STATE["att1_deadline"] is not None
+                    and now >= UE_EVENT_STATE["att1_deadline"]
+                ):
+                    UE_EVENT_STATE["att1_active"] = False
+                    UE_EVENT_STATE["att1_deadline"] = None
+                    print("[attack watchdog] att1 timeout -> auto unfreeze")
+
+                if (
+                    UE_EVENT_STATE["att2_active"]
+                    and UE_EVENT_STATE["att2_deadline"] is not None
+                    and now >= UE_EVENT_STATE["att2_deadline"]
+                ):
+                    UE_EVENT_STATE["att2_active"] = False
+                    UE_EVENT_STATE["att2_deadline"] = None
+                    print("[attack watchdog] att2 timeout -> auto unfreeze")
+
                 ue_att1_active = UE_EVENT_STATE["att1_active"]
                 ue_att1_start = UE_EVENT_STATE["att1_start_pulse"]
                 ue_att1_end = UE_EVENT_STATE["att1_end_pulse"]
