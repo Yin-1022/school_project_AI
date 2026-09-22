@@ -46,6 +46,8 @@ CLIP_FRAMES     = 8          # 每個 clip 的影格數
 CLIP_STRIDE     = 4          # 滑窗步長
 TARGET_FPS      = 12
 FRAME_SIZE      = (192, 192)
+RECOVERY_EVADE_SEC = 2.5
+RECOVERY_SEARCH_SEC = 1.0
 SEQ = 0
 UE_EVENT_STATE = {
     "att1_active": False,
@@ -115,6 +117,7 @@ def main(config: ActorConfig):
         recovery_active = False
         recovery_stage = 0
         recovery_turn_sign = 1
+        recovery_deadline = None
         global SEQ
 
         print("ACTION_MASK_MODE: ", ACTION_MASK_MODE)
@@ -205,6 +208,7 @@ def main(config: ActorConfig):
                 recv_frames = 0
                 recovery_active = False
                 recovery_stage = 0
+                recovery_deadline = None
 
                 last_step_cache = None
 
@@ -332,13 +336,9 @@ def main(config: ActorConfig):
                 ue_episode_result = UE_EVENT_STATE["episode_result"]
                 cantmove = UE_EVENT_STATE["cantmove_pulse"]
 
+                cantmove = UE_EVENT_STATE["cantmove_pulse"]
                 if cantmove:
                     UE_EVENT_STATE["cantmove_pulse"] = False
-
-                if cantmove and not recovery_active:
-                    recovery_active = True
-                    recovery_stage = 1
-                    print("[recovery] cantmove detected -> start recovery")
 
                 # pulse 讀完就清掉
                 UE_EVENT_STATE["att1_start_pulse"] = False
@@ -347,17 +347,6 @@ def main(config: ActorConfig):
                 UE_EVENT_STATE["att2_end_pulse"] = False
                 UE_EVENT_STATE["boss_hit_pulse"] = False
                 UE_EVENT_STATE["player_hit_pulse"] = False
-
-            if recovery_active:
-                if recovery_stage == 1:
-                    # evadeBack
-                    action = "EvadeBack"
-                    jsonMsg = {
-                        "action": action,
-                    }
-                    send_action(jsonMsg, action_client=action_client)
-                    recovery_stage = 2
-                    continue
 
             if last_step_cache is not None:
                 if ue_player_hit:
@@ -410,6 +399,13 @@ def main(config: ActorConfig):
 
                 continue
 
+            if cantmove and not recovery_active:
+                recovery_active = True
+                recovery_stage = 1
+                recovery_deadline = None
+
+                print("[recovery] cantmove detected -> recovery queued")
+
             if ue_att1_active or ue_att2_active:
                 print(f"[decision freeze] attack_active=1 at t={frame_id_end:05d}, skip new inference")
                 continue
@@ -442,22 +438,70 @@ def main(config: ActorConfig):
                 )
                 last_step_cache = None
 
-            if recovery_active and recovery_stage == 2:
-                recovery_angle = 90.0 * recovery_turn_sign
+            # =========================
+            # Stuck Recovery Controller
+            # =========================
+            if recovery_active:
+                # Stage 1: EvadeBack
+                if recovery_stage == 1:
+                    if recovery_deadline is None:
+                        send_action({
+                                "action": "EvadeBack",
+                            },
+                            action_client=action_client,
+                        )
 
-                send_action(
-                    {
-                        "action": "SearchTurn",
-                        "angle": recovery_angle,
-                    },
-                    action_client=action_client,
-                )
+                        recovery_deadline = monotonic() + RECOVERY_EVADE_SEC
 
-                recovery_active = False
-                recovery_stage = 0
-                recovery_turn_sign *= -1
+                        print(
+                            f"[recovery] stage 1 -> EvadeBack "
+                            f"for {RECOVERY_EVADE_SEC:.1f}s"
+                        )
 
-                continue
+                        continue
+
+                    if monotonic() < recovery_deadline:
+                        continue
+
+                    # EvadeBack 執行完成
+                    recovery_stage = 2
+                    recovery_deadline = None
+
+                # Stage 2: SearchTurn
+                if recovery_stage == 2:
+
+                    if recovery_deadline is None:
+                        recovery_angle = 90.0 * recovery_turn_sign
+
+                        send_action({
+                                "action": "SearchTurn",
+                                "angle": recovery_angle,
+                            },
+                            action_client=action_client,
+                        )
+
+                        recovery_deadline = monotonic() + RECOVERY_SEARCH_SEC
+
+                        print(
+                            f"[recovery] stage 2 -> "
+                            f"SearchTurn {recovery_angle:+.0f} "
+                            f"for {RECOVERY_SEARCH_SEC:.1f}s"
+                        )
+
+                        continue
+
+                    if monotonic() < recovery_deadline:
+                        continue
+
+                    # SearchTurn 執行完成
+                    recovery_active = False
+                    recovery_stage = 0
+                    recovery_deadline = None
+                    recovery_turn_sign *= -1
+
+                    print("[recovery] finished -> return control to policy")
+
+                    continue
 
             action_mask = build_action_mask(pol_state, frame_id_end, info, mode=ACTION_MASK_MODE)
 
