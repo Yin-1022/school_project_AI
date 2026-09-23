@@ -31,7 +31,6 @@ from constant import (
     ROLLOUT_SAVE_EVERY,
     POLICY_MODE,
     ACTION_MASK_MODE,
-    BLOCKING_ACTIONS,
     LEARNER_CHECKPOINT_PATH,
     ACTOR_CHECKPOINT_PATH
 )
@@ -46,8 +45,6 @@ CLIP_FRAMES     = 8          # 每個 clip 的影格數
 CLIP_STRIDE     = 4          # 滑窗步長
 TARGET_FPS      = 12
 FRAME_SIZE      = (192, 192)
-RECOVERY_EVADE_SEC = 2.5
-RECOVERY_SEARCH_SEC = 1.0
 SEQ = 0
 UE_EVENT_STATE = {
     "att1_active": False,
@@ -66,6 +63,10 @@ UE_EVENT_STATE = {
     "episode_done_flag": False,
     "episode_start_pulse": False,
     "episode_result": 0,
+
+    "act_active": False,
+    "act_start_pulse": False,
+    "act_end_pulse": False,
     "cantmove_pulse": False,
 }
 UE_EVENT_LOCK = threading.Lock()
@@ -112,12 +113,14 @@ def main(config: ActorConfig):
         recv_frames = 0
         sample_every = 1
         decision_count = 0
-        action_lock_until_frame = -1
-        locked_action = None
         recovery_active = False
         recovery_stage = 0
         recovery_turn_sign = 1
-        recovery_deadline = None
+        execution_action = None
+        execution_started_at = None
+        ACTION_START_TIMEOUT_SEC = 1.0
+        ACTION_END_TIMEOUT_SEC = 5.0
+        execution_sent_at = None
         global SEQ
 
         print("ACTION_MASK_MODE: ", ACTION_MASK_MODE)
@@ -126,6 +129,13 @@ def main(config: ActorConfig):
             if frame is None:
                 episode_done_now = False
                 episode_result_now = 0
+
+                execution_action = None
+                execution_sent_at = None
+                execution_started_at = None
+
+                recovery_active = False
+                recovery_stage = 0
 
                 # 給 OSC callback 一點時間把 terminal result 寫進 shared state
                 for _ in range(10):   # 最多等 10 * 0.02 = 0.2 秒
@@ -208,12 +218,12 @@ def main(config: ActorConfig):
                 recv_frames = 0
                 recovery_active = False
                 recovery_stage = 0
-                recovery_deadline = None
+                execution_action = None
+                execution_sent_at = None
+                execution_started_at = None
 
                 last_step_cache = None
 
-                action_lock_until_frame = -1
-                locked_action = None
                 reset_ue_episode_state(UE_EVENT_LOCK=UE_EVENT_LOCK, UE_EVENT_STATE=UE_EVENT_STATE)
 
             recv_frames += 1
@@ -334,9 +344,10 @@ def main(config: ActorConfig):
                 ue_player_hit = UE_EVENT_STATE["player_hit_pulse"]
                 ue_episode_done = UE_EVENT_STATE["episode_done_flag"]
                 ue_episode_result = UE_EVENT_STATE["episode_result"]
+                ue_act_start = UE_EVENT_STATE["act_start_pulse"]
+                ue_act_end = UE_EVENT_STATE["act_end_pulse"]
                 cantmove = UE_EVENT_STATE["cantmove_pulse"]
 
-                cantmove = UE_EVENT_STATE["cantmove_pulse"]
                 if cantmove:
                     UE_EVENT_STATE["cantmove_pulse"] = False
 
@@ -347,6 +358,8 @@ def main(config: ActorConfig):
                 UE_EVENT_STATE["att2_end_pulse"] = False
                 UE_EVENT_STATE["boss_hit_pulse"] = False
                 UE_EVENT_STATE["player_hit_pulse"] = False
+                UE_EVENT_STATE["act_start_pulse"] = False
+                UE_EVENT_STATE["act_end_pulse"] = False
 
             if last_step_cache is not None:
                 if ue_player_hit:
@@ -402,33 +415,70 @@ def main(config: ActorConfig):
             if cantmove and not recovery_active:
                 recovery_active = True
                 recovery_stage = 1
-                recovery_deadline = None
 
                 print("[recovery] cantmove detected -> recovery queued")
+
+            if execution_action is not None:
+                now = monotonic()
+
+                # UE 確認 action 開始
+                if ue_act_start and execution_started_at is None:
+                    execution_started_at = now
+
+                    print(
+                        f"[execution] {execution_action} started"
+                    )
+
+                # UE 確認 action 結束
+                if ue_act_end:
+                    print(
+                        f"[execution] {execution_action} finished by /actend"
+                    )
+
+                    execution_action = None
+                    execution_sent_at = None
+                    execution_started_at = None
+
+                # action 已開始，但 5 秒沒有 actend
+                elif (
+                    execution_started_at is not None
+                    and now - execution_started_at >= ACTION_END_TIMEOUT_SEC
+                ):
+                    print(
+                        f"[execution watchdog] {execution_action} "
+                        f"no /actend for {ACTION_END_TIMEOUT_SEC:.1f}s -> release"
+                    )
+
+                    execution_action = None
+                    execution_sent_at = None
+                    execution_started_at = None
+
+                # action 已送出，但 actstart 自己沒來
+                elif (
+                    execution_started_at is None
+                    and execution_sent_at is not None
+                    and now - execution_sent_at >= ACTION_START_TIMEOUT_SEC
+                ):
+                    print(
+                        f"[execution watchdog] {execution_action} "
+                        f"no /actstart -> release"
+                    )
+
+                    execution_action = None
+                    execution_sent_at = None
+                    execution_started_at = None
+
+                # 還在等 start / end
+                else:
+                    print(
+                        f"[execution freeze] waiting for "
+                        f"{execution_action}"
+                    )
+                    continue
 
             if ue_att1_active or ue_att2_active:
                 print(f"[decision freeze] attack_active=1 at t={frame_id_end:05d}, skip new inference")
                 continue
-            if frame_id_end <= action_lock_until_frame:
-                print(
-                    f"[action freeze] "
-                    f"action={locked_action} "
-                    f"t={frame_id_end:05d} "
-                    f"until={action_lock_until_frame}, "
-                    f"skip policy inference and sending"
-                )
-                continue
-
-            # 已超過鎖定時間，解除鎖定
-            if locked_action is not None:
-                print(
-                    f"[action freeze ended] "
-                    f"action={locked_action} "
-                    f"at t={frame_id_end:05d}"
-                )
-
-                locked_action = None
-                action_lock_until_frame = -1
 
             if last_step_cache is not None:
                 append_cached_step(
@@ -444,63 +494,49 @@ def main(config: ActorConfig):
             if recovery_active:
                 # Stage 1: EvadeBack
                 if recovery_stage == 1:
-                    if recovery_deadline is None:
-                        send_action({
-                                "action": "EvadeBack",
-                            },
-                            action_client=action_client,
-                        )
+                    send_action(
+                        {"action": "EvadeBack",},
+                        action_client=action_client,
+                    )
 
-                        recovery_deadline = monotonic() + RECOVERY_EVADE_SEC
+                    execution_action = "EvadeBack"
+                    execution_sent_at = monotonic()
+                    execution_started_at = None
 
-                        print(
-                            f"[recovery] stage 1 -> EvadeBack "
-                            f"for {RECOVERY_EVADE_SEC:.1f}s"
-                        )
-
-                        continue
-
-                    if monotonic() < recovery_deadline:
-                        continue
-
-                    # EvadeBack 執行完成
                     recovery_stage = 2
-                    recovery_deadline = None
+                    print(f"[recovery] stage 1 -> EvadeBack ")
+                    continue
 
                 # Stage 2: SearchTurn
                 if recovery_stage == 2:
+                    recovery_angle = 90.0 * recovery_turn_sign
 
-                    if recovery_deadline is None:
-                        recovery_angle = 90.0 * recovery_turn_sign
+                    send_action({
+                            "action": "SearchTurn",
+                            "angle": recovery_angle,
+                        },
+                        action_client=action_client,
+                    )
 
-                        send_action({
-                                "action": "SearchTurn",
-                                "angle": recovery_angle,
-                            },
-                            action_client=action_client,
-                        )
+                    execution_action = "SearchTurn"
+                    execution_sent_at = monotonic()
+                    execution_started_at = None
 
-                        recovery_deadline = monotonic() + RECOVERY_SEARCH_SEC
+                    recovery_stage = 3
 
-                        print(
-                            f"[recovery] stage 2 -> "
-                            f"SearchTurn {recovery_angle:+.0f} "
-                            f"for {RECOVERY_SEARCH_SEC:.1f}s"
-                        )
-
-                        continue
-
-                    if monotonic() < recovery_deadline:
-                        continue
-
-                    # SearchTurn 執行完成
+                    print(
+                        f"[recovery] stage 2 -> "
+                        f"SearchTurn {recovery_angle:+.0f}"
+                    )
+                    continue
+                if recovery_stage == 3:
                     recovery_active = False
                     recovery_stage = 0
-                    recovery_deadline = None
                     recovery_turn_sign *= -1
 
-                    print("[recovery] finished -> return control to policy")
-
+                    print(
+                        "[recovery] finished -> return control to policy"
+                    )
                     continue
 
             action_mask = build_action_mask(pol_state, frame_id_end, info, mode=ACTION_MASK_MODE)
@@ -654,28 +690,20 @@ def main(config: ActorConfig):
 
             send_action(jsonMsg, action_client=action_client)
 
+            execution_action = action
+            execution_sent_at = monotonic()
+            execution_started_at = None
+
+            print(
+                f"[execution] sent {execution_action}, waiting for /actstart"
+            )
+
             if POLICY_MODE == "impala":
                 decision_count+=1
 
                 if decision_count %10 == 0:
                     loaded_step = reload_AC_if_newer(model, loaded_step, str(ACTOR_CHECKPOINT_PATH), device=device)
 
-            if (
-                action in BLOCKING_ACTIONS
-                and fire_frame is not None
-                and pol_state["hold_until_frame"] is not None
-            ):
-                locked_action = action
-                action_lock_until_frame = int(
-                    pol_state["hold_until_frame"]
-                )
-
-                print(
-                    f"[action freeze started] "
-                    f"action={locked_action} "
-                    f"fire_frame={fire_frame} "
-                    f"until={action_lock_until_frame}"
-                )
     finally:
         if video_writer is not None:
             video_writer.release()

@@ -89,6 +89,21 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=12346):
             UE_EVENT_STATE["cantmove_pulse"] = True
         print(f"[← UE] Boss cant move! args: {args}")
 
+    def on_act_start(address, *args):
+        with UE_EVENT_LOCK:
+            UE_EVENT_STATE["act_active"] = True
+            UE_EVENT_STATE["act_start_pulse"] = True
+
+        print(f"[← UE] Action start! args: {args}")
+
+
+    def on_act_end(address, *args):
+        with UE_EVENT_LOCK:
+            UE_EVENT_STATE["act_active"] = False
+            UE_EVENT_STATE["act_end_pulse"] = True
+
+        print(f"[← UE] Action end! args: {args}")
+
     dp = dispatcher.Dispatcher()
     dp.map("/att1start", on_att1_start)
     dp.map("/att1end", on_att1_end)
@@ -100,6 +115,8 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=12346):
     dp.map("/aigame_start", on_aigame_start)
     dp.map("/game_win",   game_win)
     dp.map("/game_lost",   game_lost)
+    dp.map("/actstart", on_act_start)
+    dp.map("/actend", on_act_end)
     dp.map("/cantmove", on_cantmove)
     dp.set_default_handler(on_fallback)
 
@@ -214,3 +231,6 @@ def reset_ue_episode_state(UE_EVENT_LOCK, UE_EVENT_STATE):
 
         UE_EVENT_STATE["episode_start_pulse"] = False
         UE_EVENT_STATE["cantmove_pulse"] = False
+        UE_EVENT_STATE["act_active"] = False
+        UE_EVENT_STATE["act_start_pulse"] = False
+        UE_EVENT_STATE["act_end_pulse"] = False
