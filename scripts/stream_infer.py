@@ -68,6 +68,7 @@ UE_EVENT_STATE = {
     "act_start_pulse": False,
     "act_end_pulse": False,
     "cantmove_pulse": False,
+    "notseeplayer_pulse": False,
 }
 UE_EVENT_LOCK = threading.Lock()
 PRESENCE_RECORD_MODE = True
@@ -347,6 +348,7 @@ def main(config: ActorConfig):
                 ue_act_start = UE_EVENT_STATE["act_start_pulse"]
                 ue_act_end = UE_EVENT_STATE["act_end_pulse"]
                 cantmove = UE_EVENT_STATE["cantmove_pulse"]
+                notseeplayer = UE_EVENT_STATE["notseeplayer_pulse"]
 
                 if cantmove:
                     UE_EVENT_STATE["cantmove_pulse"] = False
@@ -360,6 +362,7 @@ def main(config: ActorConfig):
                 UE_EVENT_STATE["player_hit_pulse"] = False
                 UE_EVENT_STATE["act_start_pulse"] = False
                 UE_EVENT_STATE["act_end_pulse"] = False
+                UE_EVENT_STATE["notseeplayer_pulse"] = False
 
             if last_step_cache is not None:
                 if ue_player_hit:
@@ -417,6 +420,31 @@ def main(config: ActorConfig):
                 recovery_stage = 1
 
                 print("[recovery] cantmove detected -> recovery queued")
+
+            if (notseeplayer and execution_action in {"StrafeLeft", "StrafeRight"}):
+                rejected_action = execution_action
+
+                print(f"[execution fallback] {rejected_action} rejected by /notseeplayer -> Advance")
+
+                # 原本 Strafe 根本沒有真正執行
+                execution_action = None
+                execution_sent_at = None
+                execution_started_at = None
+
+                # 這筆不能當成「Strafe 被成功執行」拿去訓練
+                last_step_cache = None
+
+                # 改由 runtime fallback 執行 Advance
+                send_action(
+                    {"action": "Advance"},
+                    action_client=action_client,
+                )
+
+                execution_action = "Advance"
+                execution_sent_at = monotonic()
+                execution_started_at = None
+
+                continue
 
             if execution_action is not None:
                 now = monotonic()

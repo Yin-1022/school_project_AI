@@ -104,6 +104,12 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=12346):
 
         print(f"[← UE] Action end! args: {args}")
 
+    def on_notseeplayer(address, *args):
+        with UE_EVENT_LOCK:
+            UE_EVENT_STATE["notseeplayer_pulse"] = True
+
+        print(f"[← UE] Strafe rejected: player not seen! args: {args}")
+
     dp = dispatcher.Dispatcher()
     dp.map("/att1start", on_att1_start)
     dp.map("/att1end", on_att1_end)
@@ -118,6 +124,7 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=12346):
     dp.map("/actstart", on_act_start)
     dp.map("/actend", on_act_end)
     dp.map("/cantmove", on_cantmove)
+    dp.map("/notseeplayer", on_notseeplayer)
     dp.set_default_handler(on_fallback)
 
     server = osc_server.ThreadingOSCUDPServer(("0.0.0.0", event_port), dp)
@@ -234,3 +241,4 @@ def reset_ue_episode_state(UE_EVENT_LOCK, UE_EVENT_STATE):
         UE_EVENT_STATE["act_active"] = False
         UE_EVENT_STATE["act_start_pulse"] = False
         UE_EVENT_STATE["act_end_pulse"] = False
+        UE_EVENT_STATE["notseeplayer_pulse"] = False
