@@ -52,15 +52,27 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=12346):
         print(f"[← UE] 未知訊息 {address}，args: {args}\n")
 
     def on_boss_hit(address, *args):
+        if not args:
+            return
+        health = float(args[0])
+        print(f"[← UE] Boss 被擊中！args: {args}\n")
         with UE_EVENT_LOCK:
             UE_EVENT_STATE["boss_hit_pulse"] = True
-        print(f"[← UE] Boss 被擊中！args: {args}\n")
+        if health <= 0:
+            # Boss dead = Player win
+            set_episode_result(result=-1,source="boss_health<=0",)
 
     def on_health_changed(address, *args):
+        if not args:
+            return
         health = args[0]
+        print(f"[← UE] 玩家血量：{health}")
         with UE_EVENT_LOCK:
             UE_EVENT_STATE["player_hit_pulse"] = True
-        print(f"[← UE] 玩家血量：{health}")
+
+        if health <= 0:
+            # Player dead = Boss win
+            set_episode_result(result=1,source="player_health<=0",)
 
     def on_episode_done(address, *args):
         print(f"[← UE] 回合結束！args: {args}\n")
@@ -72,17 +84,29 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=12346):
 
     def game_win(address, *args):
         # Player win = Boss loss
-        with UE_EVENT_LOCK:
-            UE_EVENT_STATE["episode_done_flag"] = True
-            UE_EVENT_STATE["episode_result"] = -1
-        print(f"[← UE] Boss 被擊敗！\n")
+        set_episode_result(
+            result=-1,
+            source="/game_win",
+        )
 
     def game_lost(address, *args):
         # Player lost = Boss win
+        set_episode_result(
+            result=1,
+            source="/game_lost",
+        )
+
+    def set_episode_result(result: int, source: str):
         with UE_EVENT_LOCK:
+            # 避免 health=0、game_lost、disconnect 前後重複 terminal
+            if UE_EVENT_STATE["episode_done_flag"]:
+                return
+
             UE_EVENT_STATE["episode_done_flag"] = True
-            UE_EVENT_STATE["episode_result"] = 1
-        print(f"[← UE] Boss 勝利！\n")
+            UE_EVENT_STATE["episode_result"] = result
+
+        result_name = "Boss win" if result > 0 else "Boss loss"
+        print(f"[UE terminal] {result_name} detected from {source}")
 
     def on_cantmove(address, *args):
         with UE_EVENT_LOCK:

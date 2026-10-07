@@ -176,29 +176,33 @@ def compute_reward_channels(
     medium_reward -= ue_boss_hit_count * 1.0
 
     #Low level shaping reward
-    visible = info.get("visible", 0)
-    phase = info.get("phase", "patrol")
+    low_reward = 0.0
+    # Disabled for reward audit:
+    # action-based shaping can be exploited by repeated movement.
+
+    # visible = info.get("visible", 0)
+    # phase = info.get("phase", "patrol")
 
     # # 1) 玩家攻擊起手時，Boss 做 evasive 給較大正分
     # if ue_attack_start and final_action in {"EvadeBack", "Retreat"}:
     #         low_reward += 1.0
 
     # 2) track 時不要一直 Hold
-    if visible == 1 and phase == "track":
-        if final_action == "Hold":
-            low_reward -= 0.1
-        elif final_action in {"Advance", "StrafeLeft", "StrafeRight"}:
-            low_reward += 0.1
+    # if visible == 1 and phase == "track":
+    #     if final_action == "Hold":
+    #         low_reward -= 0.1
+    #     elif final_action in {"Advance", "StrafeLeft", "StrafeRight"}:
+    #         low_reward += 0.1
 
     # 3) reacq 時做 SearchTurn 給小正分
-    if phase == "reacq":
-        if final_action in {"SearchTurnLeft", "SearchTurnRight"}:
-            low_reward += 0.1
+    # if phase == "reacq":
+    #     if final_action in {"SearchTurnLeft", "SearchTurnRight"}:
+    #         low_reward += 0.1
 
     # 4) patrol 時做 PatrolStep 給小正分
-    if phase == "patrol":
-        if final_action in {"PatrolStepLeft", "PatrolStepRight"}:
-            low_reward += 0.05
+    # if phase == "patrol":
+    #     if final_action in {"PatrolStepLeft", "PatrolStepRight"}:
+    #         low_reward += 0.05
 
     return {
         "high_reward": np.float32(high_reward),
