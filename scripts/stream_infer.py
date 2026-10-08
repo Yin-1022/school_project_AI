@@ -117,6 +117,7 @@ def main(config: ActorConfig):
         recovery_active = False
         recovery_stage = 0
         recovery_turn_sign = 1
+        recovery_turn_failed = False
         execution_action = None
         execution_started_at = None
         execution_sent_at = None
@@ -220,6 +221,7 @@ def main(config: ActorConfig):
                 recv_frames = 0
                 recovery_active = False
                 recovery_stage = 0
+                recovery_turn_failed = False
                 execution_action = None
                 execution_sent_at = None
                 execution_started_at = None
@@ -274,9 +276,25 @@ def main(config: ActorConfig):
             with UE_EVENT_LOCK:
                 ue_act_start_now = UE_EVENT_STATE["act_start_pulse"]
                 ue_act_end_now = UE_EVENT_STATE["act_end_pulse"]
+                cantmove_now = UE_EVENT_STATE["cantmove_pulse"]
 
                 UE_EVENT_STATE["act_start_pulse"] = False
                 UE_EVENT_STATE["act_end_pulse"] = False
+                UE_EVENT_STATE["cantmove_pulse"] = False
+
+            if cantmove_now:
+
+                if (recovery_active and recovery_stage == 2 and execution_action == "SearchTurn"):
+                    recovery_turn_failed = True
+
+                    print("[recovery] turn failed -> EvadeBack required")
+
+                elif not recovery_active:
+                    recovery_active = True
+                    recovery_stage = 1
+                    recovery_turn_failed = False
+
+                    print("[recovery] cantmove -> SearchTurn queued")
 
             now = monotonic()
 
@@ -410,11 +428,7 @@ def main(config: ActorConfig):
                 ue_player_hit = UE_EVENT_STATE["player_hit_pulse"]
                 ue_episode_done = UE_EVENT_STATE["episode_done_flag"]
                 ue_episode_result = UE_EVENT_STATE["episode_result"]
-                cantmove = UE_EVENT_STATE["cantmove_pulse"]
                 notseeplayer = UE_EVENT_STATE["notseeplayer_pulse"]
-
-                if cantmove:
-                    UE_EVENT_STATE["cantmove_pulse"] = False
 
                 # pulse 讀完就清掉
                 UE_EVENT_STATE["att1_start_pulse"] = False
@@ -476,12 +490,6 @@ def main(config: ActorConfig):
 
                 continue
 
-            if cantmove and not recovery_active:
-                recovery_active = True
-                recovery_stage = 1
-
-                print("[recovery] cantmove detected -> recovery queued")
-
             if (notseeplayer and execution_action in {"StrafeLeft", "StrafeRight"}):
                 rejected_action = execution_action
 
@@ -526,29 +534,11 @@ def main(config: ActorConfig):
             # Stuck Recovery Controller
             # =========================
             if recovery_active:
-                # Stage 1: EvadeBack
+                # Stage 1: SearchTurn first
                 if recovery_stage == 1:
-                    send_action(
-                        {"action": "EvadeBack",},
-                        action_client=action_client,
-                    )
-
-                    execution_action = "EvadeBack"
-                    execution_sent_at = monotonic()
-                    execution_started_at = None
-
-                    recovery_stage = 2
-                    print(f"[recovery] stage 1 -> EvadeBack ")
-                    continue
-
-                # Stage 2: SearchTurn
-                if recovery_stage == 2:
                     recovery_angle = 90.0 * recovery_turn_sign
-
-                    send_action({
-                            "action": "SearchTurn",
-                            "angle": recovery_angle,
-                        },
+                    send_action(
+                        {"action": "SearchTurn", "angle": recovery_angle,},
                         action_client=action_client,
                     )
 
@@ -556,21 +546,57 @@ def main(config: ActorConfig):
                     execution_sent_at = monotonic()
                     execution_started_at = None
 
-                    recovery_stage = 3
+                    recovery_stage = 2
+                    print(f"[recovery] try SearchTurn {recovery_angle:+.0f}")
+                    continue
+
+                # Stage 2: Fallback if SearchTurn failed
+                if recovery_stage == 2:
+                    if recovery_turn_failed:
+                        recovery_stage = 3
+
+                        print("[recovery] turn failed -> fallback EvadeBack")
+
+                    else:
+                        recovery_active = False
+                        recovery_stage = 0
+                        recovery_turn_failed = False
+                        recovery_turn_sign *= -1
+
+                        print("[recovery] turn succeeded -> return control to policy")
+                    continue
+
+                # Stage 3: EvadeBack
+                if recovery_stage == 3:
+                    send_action(
+                        {"action": "EvadeBack"},
+                        action_client=action_client,
+                    )
+
+                    execution_action = "EvadeBack"
+                    execution_sent_at = monotonic()
+                    execution_started_at = None
+
+                    recovery_stage = 4
 
                     print(
-                        f"[recovery] stage 2 -> "
-                        f"SearchTurn {recovery_angle:+.0f}"
+                        "[recovery] fallback -> EvadeBack"
                     )
                     continue
-                if recovery_stage == 3:
+
+                # Stage 4: Wait for EvadeBack to finish
+                if recovery_stage == 4:
+
                     recovery_active = False
                     recovery_stage = 0
+                    recovery_turn_failed = False
                     recovery_turn_sign *= -1
 
                     print(
-                        "[recovery] finished -> return control to policy"
+                        "[recovery] EvadeBack finished "
+                        "-> return control to policy"
                     )
+
                     continue
 
             action_mask = build_action_mask(pol_state, frame_id_end, info, mode=ACTION_MASK_MODE)
