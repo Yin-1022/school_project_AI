@@ -119,9 +119,10 @@ def main(config: ActorConfig):
         recovery_turn_sign = 1
         execution_action = None
         execution_started_at = None
+        execution_sent_at = None
+        force_decision = False
         ACTION_START_TIMEOUT_SEC = 1.0
         ACTION_END_TIMEOUT_SEC = 5.0
-        execution_sent_at = None
         global SEQ
 
         print("ACTION_MASK_MODE: ", ACTION_MASK_MODE)
@@ -222,6 +223,7 @@ def main(config: ActorConfig):
                 execution_action = None
                 execution_sent_at = None
                 execution_started_at = None
+                force_decision = False
 
                 last_step_cache = None
 
@@ -265,10 +267,73 @@ def main(config: ActorConfig):
             frame_ring_buffer.append(frame)
             pushed_frames += 1
 
+            # =====================================
+            # Lightweight Execution Event Polling
+            # 每張 frame 都檢查，不等 CLIP_STRIDE
+            # =====================================
+            with UE_EVENT_LOCK:
+                ue_act_start_now = UE_EVENT_STATE["act_start_pulse"]
+                ue_act_end_now = UE_EVENT_STATE["act_end_pulse"]
+
+                UE_EVENT_STATE["act_start_pulse"] = False
+                UE_EVENT_STATE["act_end_pulse"] = False
+
+            now = monotonic()
+
+            if execution_action is not None:
+
+                if ue_act_start_now and execution_started_at is None:
+                    execution_started_at = now
+                    print(f"[execution] {execution_action} started")
+
+                if ue_act_end_now:
+                    print(
+                        f"[execution] {execution_action} "
+                        "finished by /actend"
+                    )
+
+                    execution_action = None
+                    execution_sent_at = None
+                    execution_started_at = None
+
+                    force_decision = True
+
+                elif (
+                    execution_started_at is not None
+                    and now - execution_started_at >= ACTION_END_TIMEOUT_SEC
+                ):
+                    print(
+                        f"[execution watchdog] {execution_action} "
+                        f"no /actend for {ACTION_END_TIMEOUT_SEC:.1f}s -> release"
+                    )
+
+                    execution_action = None
+                    execution_sent_at = None
+                    execution_started_at = None
+
+                    force_decision = True
+
+                elif (
+                    execution_started_at is None
+                    and execution_sent_at is not None
+                    and now - execution_sent_at >= ACTION_START_TIMEOUT_SEC
+                ):
+                    print(
+                        f"[execution watchdog] {execution_action} "
+                        "no /actstart -> release"
+                    )
+
+                    execution_action = None
+                    execution_sent_at = None
+                    execution_started_at = None
+
+                    force_decision = True
+
             if len(frame_ring_buffer) < CLIP_FRAMES:
                 continue
-            if pushed_frames % CLIP_STRIDE != 0:
+            if (not force_decision) and (pushed_frames % CLIP_STRIDE != 0):
                 continue
+            force_decision = False
 
             frame_id_end = pushed_frames - 1
             frames = build_frame_tensor(frame_ring_buffer)
@@ -345,8 +410,6 @@ def main(config: ActorConfig):
                 ue_player_hit = UE_EVENT_STATE["player_hit_pulse"]
                 ue_episode_done = UE_EVENT_STATE["episode_done_flag"]
                 ue_episode_result = UE_EVENT_STATE["episode_result"]
-                ue_act_start = UE_EVENT_STATE["act_start_pulse"]
-                ue_act_end = UE_EVENT_STATE["act_end_pulse"]
                 cantmove = UE_EVENT_STATE["cantmove_pulse"]
                 notseeplayer = UE_EVENT_STATE["notseeplayer_pulse"]
 
@@ -360,8 +423,6 @@ def main(config: ActorConfig):
                 UE_EVENT_STATE["att2_end_pulse"] = False
                 UE_EVENT_STATE["boss_hit_pulse"] = False
                 UE_EVENT_STATE["player_hit_pulse"] = False
-                UE_EVENT_STATE["act_start_pulse"] = False
-                UE_EVENT_STATE["act_end_pulse"] = False
                 UE_EVENT_STATE["notseeplayer_pulse"] = False
 
             if last_step_cache is not None:
@@ -447,62 +508,7 @@ def main(config: ActorConfig):
                 continue
 
             if execution_action is not None:
-                now = monotonic()
-
-                # UE 確認 action 開始
-                if ue_act_start and execution_started_at is None:
-                    execution_started_at = now
-
-                    print(
-                        f"[execution] {execution_action} started"
-                    )
-
-                # UE 確認 action 結束
-                if ue_act_end:
-                    print(
-                        f"[execution] {execution_action} finished by /actend"
-                    )
-
-                    execution_action = None
-                    execution_sent_at = None
-                    execution_started_at = None
-
-                # action 已開始，但 5 秒沒有 actend
-                elif (
-                    execution_started_at is not None
-                    and now - execution_started_at >= ACTION_END_TIMEOUT_SEC
-                ):
-                    print(
-                        f"[execution watchdog] {execution_action} "
-                        f"no /actend for {ACTION_END_TIMEOUT_SEC:.1f}s -> release"
-                    )
-
-                    execution_action = None
-                    execution_sent_at = None
-                    execution_started_at = None
-
-                # action 已送出，但 actstart 自己沒來
-                elif (
-                    execution_started_at is None
-                    and execution_sent_at is not None
-                    and now - execution_sent_at >= ACTION_START_TIMEOUT_SEC
-                ):
-                    print(
-                        f"[execution watchdog] {execution_action} "
-                        f"no /actstart -> release"
-                    )
-
-                    execution_action = None
-                    execution_sent_at = None
-                    execution_started_at = None
-
-                # 還在等 start / end
-                else:
-                    print(
-                        f"[execution freeze] waiting for "
-                        f"{execution_action}"
-                    )
-                    continue
+                continue
 
             if ue_att1_active or ue_att2_active:
                 print(f"[decision freeze] attack_active=1 at t={frame_id_end:05d}, skip new inference")
