@@ -123,6 +123,8 @@ def main(config: ActorConfig):
         execution_action = None
         execution_started_at = None
         execution_sent_at = None
+        hit_turn_pending = False
+        hit_turn_attempts = 0
         force_decision = False
         ACTION_START_TIMEOUT_SEC = 1.0
         ACTION_END_TIMEOUT_SEC = 5.0
@@ -230,6 +232,8 @@ def main(config: ActorConfig):
                 execution_sent_at = None
                 execution_started_at = None
                 force_decision = False
+                hit_turn_pending = False
+                hit_turn_attempts = 0
 
                 last_step_cache = None
 
@@ -415,6 +419,9 @@ def main(config: ActorConfig):
                 frame_id_end=frame_id_end,
             )
 
+            if info["visible"] == 1:
+                hit_turn_attempts = 0
+
             extra_tensor = build_extra_tensor(info, pol_state, frame_id_end)
             now = monotonic()
 
@@ -491,6 +498,14 @@ def main(config: ActorConfig):
                 print("[UE event] boss skill attack1 end")
             if ue_boss_hit:
                 print("[UE event] boss hit")
+
+                if (info["visible"] == 0 and not recovery_active and hit_turn_attempts < 2):
+                        hit_turn_pending = True
+
+                        print("[hit reaction] boss hit while player unseen -> queue SearchTurn +135")
+                else:
+                    hit_turn_attempts = 0
+                    hit_turn_pending = False
             if ue_player_hit:
                 print("[UE event] player hit")
             if ue_episode_done:
@@ -619,6 +634,32 @@ def main(config: ActorConfig):
                     )
 
                     continue
+
+            # =========================
+            # Hit Reaction Controller
+            # =========================
+            if hit_turn_pending:
+                send_action(
+                    {
+                        "action": "SearchTurn",
+                        "angle": 135.0,
+                    },
+                    action_client=action_client,
+                )
+
+                execution_action = "SearchTurn"
+                execution_sent_at = monotonic()
+                execution_started_at = None
+
+                hit_turn_pending = False
+                hit_turn_attempts += 1
+
+                print(
+                    f"[hit reaction] SearchTurn +135 "
+                    f"(attempt {hit_turn_attempts}/2)"
+                )
+
+                continue
 
             action_mask = build_action_mask(pol_state, frame_id_end, info, mode=ACTION_MASK_MODE)
 
