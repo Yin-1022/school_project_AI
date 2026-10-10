@@ -504,7 +504,6 @@ def main(config: ActorConfig):
 
                         print("[hit reaction] boss hit while player unseen -> queue SearchTurn +135")
                 else:
-                    hit_turn_attempts = 0
                     hit_turn_pending = False
             if ue_player_hit:
                 print("[UE event] player hit")
@@ -816,7 +815,7 @@ def main(config: ActorConfig):
             execution_sent_at = monotonic()
             execution_started_at = None
 
-            if recovery_verify_pending and recovery_verify_action is {"Advance","StrafeLeft", "StrafeRight"}:
+            if recovery_verify_pending and execution_action in {"Advance", "StrafeLeft", "StrafeRight"}:
                 recovery_verify_action = execution_action
 
             print(
