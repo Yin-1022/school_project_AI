@@ -118,6 +118,8 @@ def main(config: ActorConfig):
         recovery_stage = 0
         recovery_turn_sign = 1
         recovery_turn_failed = False
+        recovery_verify_pending = False
+        recovery_verify_action = None
         execution_action = None
         execution_started_at = None
         execution_sent_at = None
@@ -222,6 +224,8 @@ def main(config: ActorConfig):
                 recovery_active = False
                 recovery_stage = 0
                 recovery_turn_failed = False
+                recovery_verify_pending = False
+                recovery_verify_action = None
                 execution_action = None
                 execution_sent_at = None
                 execution_started_at = None
@@ -284,11 +288,25 @@ def main(config: ActorConfig):
 
             if cantmove_now:
 
+                #正在 Recovery SearchTurn
                 if (recovery_active and recovery_stage == 2 and execution_action == "SearchTurn"):
                     recovery_turn_failed = True
 
                     print("[recovery] turn failed -> EvadeBack required")
 
+                #正在驗證 SearchTurn 後的第一個 movement
+                elif (
+                    recovery_verify_pending
+                    and recovery_verify_action is not None
+                    and execution_action == recovery_verify_action
+                ):
+                    recovery_verify_pending = False
+                    recovery_verify_action = None
+
+                    recovery_active = True
+                    recovery_stage = 3  # 直接 EvadeBack
+
+                #一般情況
                 elif not recovery_active:
                     recovery_active = True
                     recovery_stage = 1
@@ -305,10 +323,13 @@ def main(config: ActorConfig):
                     print(f"[execution] {execution_action} started")
 
                 if ue_act_end_now:
-                    print(
-                        f"[execution] {execution_action} "
-                        "finished by /actend"
-                    )
+                    print(f"[execution] {execution_action} finished by /actend")
+
+                    finished_action = execution_action
+                    if recovery_verify_pending and recovery_verify_action == finished_action:
+                        recovery_verify_pending = False
+                        recovery_verify_action = None
+                        recovery_turn_sign *= -1
 
                     execution_action = None
                     execution_sent_at = None
@@ -561,9 +582,11 @@ def main(config: ActorConfig):
                         recovery_active = False
                         recovery_stage = 0
                         recovery_turn_failed = False
-                        recovery_turn_sign *= -1
 
-                        print("[recovery] turn succeeded -> return control to policy")
+                        recovery_verify_pending = True
+                        recovery_verify_action = None
+
+                        print("[recovery] SearchTurn finished -> waiting for movement verification")
                     continue
 
                 # Stage 3: EvadeBack
@@ -590,11 +613,9 @@ def main(config: ActorConfig):
                     recovery_active = False
                     recovery_stage = 0
                     recovery_turn_failed = False
-                    recovery_turn_sign *= -1
 
                     print(
-                        "[recovery] EvadeBack finished "
-                        "-> return control to policy"
+                        "[recovery] EvadeBack finished -> return control to policy"
                     )
 
                     continue
@@ -753,6 +774,9 @@ def main(config: ActorConfig):
             execution_action = action
             execution_sent_at = monotonic()
             execution_started_at = None
+
+            if recovery_verify_pending and recovery_verify_action is {"Advance","StrafeLeft", "StrafeRight"}:
+                recovery_verify_action = execution_action
 
             print(
                 f"[execution] sent {execution_action}, waiting for /actstart"
