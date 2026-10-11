@@ -22,7 +22,8 @@ from presence_inference import (
     infer_player_presence,
 )
 from action_postprocess import apply_action_with_state
-from rollout_logger import append_cached_step, flush_rollout_buffer, append_last_step
+from rollout_logger import append_cached_step, flush_rollout_buffer
+from reward_priority import resolve_priority_reward
 import threading
 import time
 from time import monotonic
@@ -35,6 +36,7 @@ from constant import (
     ACTOR_CHECKPOINT_PATH
 )
 from behavior_policy import compute_behavior_probs
+from episode_metrics import EpisodeMetrics, format_summary
 
 # RAW_DIR = Path("data/raw_videos")
 # video_path = RAW_DIR / "raw_video_4_t.mp4"
@@ -125,7 +127,9 @@ def main(config: ActorConfig):
         execution_sent_at = None
         hit_turn_pending = False
         hit_turn_attempts = 0
+        terminal_handled = False
         force_decision = False
+        episode_metrics = EpisodeMetrics(actor_id=config.actor_id)
         ACTION_START_TIMEOUT_SEC = 1.0
         ACTION_END_TIMEOUT_SEC = 5.0
         global SEQ
@@ -153,26 +157,23 @@ def main(config: ActorConfig):
                         break
                     time.sleep(0.02)
 
-                if episode_done_now:
+                if episode_done_now and not terminal_handled:
                     print("[UE event] episode done (disconnect terminal append)")
 
-                    if last_step_cache is not None:
-                        last_step_cache["ue_episode_result"] = episode_result_now
-
-                    appended = append_last_step(
+                    finalize_episode(
                         rollout_buffer=rollout_buffer,
                         last_step_cache=last_step_cache,
+                        episode_metrics=episode_metrics,
+                        actor_id=config.actor_id,
+                        episode_result=episode_result_now,
+                        policy_step=loaded_step,
                     )
 
-                    if appended:
-                        print("[rollout] terminal step appended on disconnect")
-
+                    terminal_handled = True
+                    last_step_cache = None
                     with UE_EVENT_LOCK:
                         UE_EVENT_STATE["episode_done_flag"] = False
                         UE_EVENT_STATE["episode_result"] = 0
-
-                    if rollout_buffer:
-                        flush_rollout_buffer(rollout_buffer, config.actor_id, last_step_cache)
                 else:
                     if rollout_buffer:
                         print(
@@ -180,6 +181,10 @@ def main(config: ActorConfig):
                             "on disconnect without terminal result"
                         )
                         rollout_buffer.clear()
+                        if not terminal_handled:
+                            episode_metrics = EpisodeMetrics(
+                                actor_id=config.actor_id
+                            )
 
                 print("[stream] disconnected, waiting for UE reconnect")
                 last_step_cache = None
@@ -193,25 +198,22 @@ def main(config: ActorConfig):
                 if episode_started:
                     UE_EVENT_STATE["episode_start_pulse"] = False
 
-            if episode_done and episode_result and last_step_cache is not None:
-                last_step_cache["ue_episode_done"] = True
-                last_step_cache["ue_episode_result"] = episode_result
+            if episode_done and episode_result and not terminal_handled:
 
-                appended = append_last_step(
+                finalize_episode(
                     rollout_buffer=rollout_buffer,
                     last_step_cache=last_step_cache,
+                    episode_metrics=episode_metrics,
+                    actor_id=config.actor_id,
+                    episode_result=episode_result,
+                    policy_step=loaded_step,
                 )
-
-                if appended:
-                    print("[rollout] terminal step appended on episode_done")
+                terminal_handled = True
+                last_step_cache = None
 
                 with UE_EVENT_LOCK:
                     UE_EVENT_STATE["episode_done_flag"] = False
                     UE_EVENT_STATE["episode_result"] = 0
-
-                if rollout_buffer:
-                    flush_rollout_buffer(rollout_buffer, config.actor_id, last_step_cache)
-                last_step_cache = None
 
             if episode_started:
                 print("[episode] New episode started, resetting runtime state")
@@ -234,10 +236,14 @@ def main(config: ActorConfig):
                 force_decision = False
                 hit_turn_pending = False
                 hit_turn_attempts = 0
+                terminal_handled = False
+                episode_metrics = EpisodeMetrics(actor_id=config.actor_id)
 
                 last_step_cache = None
 
                 reset_ue_episode_state(UE_EVENT_LOCK=UE_EVENT_LOCK, UE_EVENT_STATE=UE_EVENT_STATE)
+            elif terminal_handled:
+                continue
 
             recv_frames += 1
 
@@ -507,17 +513,19 @@ def main(config: ActorConfig):
                     hit_turn_pending = False
             if ue_player_hit:
                 print("[UE event] player hit")
-            if ue_episode_done:
+            if ue_episode_done and not terminal_handled:
                 print("[UE event] episode done")
-                if last_step_cache is not None:
-                    append_cached_step(
-                        rollout_buffer,
-                        last_step_cache,
-                        done=1,
-                    )
-                    last_step_cache = None
 
-                flush_rollout_buffer(rollout_buffer, config.actor_id, last_step_cache)
+                finalize_episode(
+                    rollout_buffer=rollout_buffer,
+                    last_step_cache=last_step_cache,
+                    episode_metrics=episode_metrics,
+                    actor_id=config.actor_id,
+                    episode_result=ue_episode_result,
+                    policy_step=loaded_step,
+                )
+                terminal_handled = True
+                last_step_cache = None
 
                 with UE_EVENT_LOCK:
                     UE_EVENT_STATE["episode_done_flag"] = False
@@ -558,9 +566,10 @@ def main(config: ActorConfig):
                 continue
 
             if last_step_cache is not None:
-                append_cached_step(
-                    rollout_buffer,
-                    last_step_cache,
+                append_and_record_step(
+                    rollout_buffer=rollout_buffer,
+                    cache=last_step_cache,
+                    episode_metrics=episode_metrics,
                     done=0,
                 )
                 last_step_cache = None
@@ -899,6 +908,72 @@ def derive_rule_pred_name(info):
         return "move", 0.8
 
     return "idle", 0.6
+
+def finalize_episode(
+    *,
+    rollout_buffer,
+    last_step_cache,
+    episode_metrics,
+    actor_id,
+    episode_result,
+    policy_step,
+):
+    if last_step_cache is not None:
+        last_step_cache["ue_episode_done"] = True
+        last_step_cache["ue_episode_result"] = episode_result
+
+        append_and_record_step(
+            rollout_buffer=rollout_buffer,
+            cache=last_step_cache,
+            episode_metrics=episode_metrics,
+            done=1,
+        )
+    else:
+        print(
+            "[episode warning] terminal received "
+            "without trainable last_step_cache; "
+            "terminal reward was not attributed"
+        )
+
+    summary = episode_metrics.finish_episode(
+        episode_result=episode_result,
+        policy_step=policy_step,
+    )
+
+    print(format_summary(summary))
+
+    if rollout_buffer:
+        flush_rollout_buffer(rollout_buffer, actor_id)
+
+def append_and_record_step(
+    *,
+    rollout_buffer,
+    cache,
+    episode_metrics,
+    done,
+):
+    rewards = append_cached_step(
+                rollout_buffer,
+                cache,
+                done=done,
+            )
+    if rewards is None:
+        return
+    
+    resolved = resolve_priority_reward(
+            reward_high=float(rewards["high_reward"]),
+            reward_medium=float(rewards["medium_reward"]),
+            reward_low=float(rewards["low_reward"]),
+            ue_player_hit_count=cache["ue_player_hit_count"],
+            ue_boss_hit_count=cache["ue_boss_hit_count"],
+            ue_episode_result=cache["ue_episode_result"],
+        )
+    episode_metrics.record_transition(
+            cache=cache,
+            rewards=rewards,
+            selected_reward=resolved["reward"]
+        )
+    return rewards
 
 # def save_teacher_sample(frames, extra, action_name, frame_id_end):
 #     out_dir = Path("data/teacher_samples")

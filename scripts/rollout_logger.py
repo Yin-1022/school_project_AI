@@ -134,22 +134,19 @@ def flush_rollout_buffer(buffer, actor_id, bootstrap_cathe=None):
     print(f"[rollout] saved {len(buffer)} steps -> {out_path}")
     buffer.clear()
 
-def append_last_step(
-    rollout_buffer,
-    last_step_cache,
-):
+def append_last_step(rollout_buffer, last_step_cache,):
     if last_step_cache is None:
-        return False
+        return None
 
     last_step_cache["ue_episode_done"] = True
 
-    append_cached_step(
+    rewards = append_cached_step(
         rollout_buffer,
         last_step_cache,
         done=1,
     )
 
-    return True
+    return rewards
 
 def compute_reward_channels(
         info,final_action,
@@ -212,7 +209,7 @@ def compute_reward_channels(
 
 def append_cached_step(rollout_buffer, cache, done=0):
     if cache is None:
-        return False
+        return None
 
     rewards = compute_reward_channels(
         info=cache["info"],
@@ -258,4 +255,4 @@ def append_cached_step(rollout_buffer, cache, done=0):
         actor_policy_step=cache["actor_policy_step"],
     )
 
-    return True
+    return rewards
