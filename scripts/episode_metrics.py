@@ -6,10 +6,14 @@ from time import monotonic
 class EpisodeEventAudit:
     player_hits_on_boss_raw: int = 0
     boss_hits_on_player_raw: int = 0
+    unattributed_player_hits_on_boss: int = 0
+    unattributed_boss_hits_on_player: int = 0
 
     def reset(self):
         self.player_hits_on_boss_raw = 0
         self.boss_hits_on_player_raw = 0
+        self.unattributed_player_hits_on_boss = 0
+        self.unattributed_boss_hits_on_player = 0
 
 @dataclass
 class EpisodeMetrics:
@@ -28,6 +32,8 @@ class EpisodeMetrics:
     player_hits_on_boss: int = 0
     raw_player_hits_on_boss: int = 0
     raw_boss_hits_on_player: int = 0
+    unattributed_player_hits_on_boss: int = 0
+    unattributed_boss_hits_on_player: int = 0
 
     action_counts: Counter = field(default_factory=Counter)
 
@@ -78,6 +84,8 @@ class EpisodeMetrics:
 
         self.raw_player_hits_on_boss = (event_audit["player_hits_on_boss_raw"])
         self.raw_boss_hits_on_player = (event_audit["boss_hits_on_player_raw"])
+        self.unattributed_player_hits_on_boss = (event_audit["unattributed_player_hits_on_boss"])
+        self.unattributed_boss_hits_on_player = (event_audit["unattributed_boss_hits_on_player"])
 
         return self.build_summary()
 
@@ -107,9 +115,25 @@ class EpisodeMetrics:
             "player_hits_on_boss": self.player_hits_on_boss,
             "raw_player_hits_on_boss": self.raw_player_hits_on_boss,
             "raw_boss_hits_on_player": self.raw_boss_hits_on_player,
+            "unattributed_player_hits_on_boss": self.unattributed_player_hits_on_boss,
+            "unattributed_boss_hits_on_player": self.unattributed_boss_hits_on_player,
 
             "action_counts": dict(self.action_counts),
         }
+
+def attribute_hit_counts(
+    *,
+    last_step_cache,
+    event_audit,
+    boss_hit_count,
+    player_hit_count,
+):
+    if last_step_cache is not None:
+        last_step_cache["ue_boss_hit_count"] += boss_hit_count
+        last_step_cache["ue_player_hit_count"] += player_hit_count
+    else:
+        event_audit.unattributed_player_hits_on_boss += boss_hit_count
+        event_audit.unattributed_boss_hits_on_player += player_hit_count
 
 def format_summary(summary: dict) -> str:
     return (
@@ -139,6 +163,10 @@ def format_summary(summary: dict) -> str:
         "\nAttributed Hits:\n"
         f"  Boss -> Player: {summary['boss_hits_on_player']} | "
         f"  Player -> Boss: {summary['player_hits_on_boss']} | \n"
+
+        "\nUnattributed Hits:\n"
+        f"  Boss -> Player: {summary['unattributed_boss_hits_on_player']} | "
+        f"  Player -> Boss: {summary['unattributed_player_hits_on_boss']} | \n"
 
         "\nRaw UE Hit Events:\n"
         f"  Boss -> Player: {summary['raw_boss_hits_on_player']} | "

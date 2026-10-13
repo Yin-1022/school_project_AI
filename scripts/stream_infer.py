@@ -36,7 +36,7 @@ from constant import (
     ACTOR_CHECKPOINT_PATH
 )
 from behavior_policy import compute_behavior_probs
-from episode_metrics import EpisodeMetrics, EpisodeEventAudit, format_summary
+from episode_metrics import EpisodeMetrics, EpisodeEventAudit, attribute_hit_counts, format_summary
 
 # RAW_DIR = Path("data/raw_videos")
 # video_path = RAW_DIR / "raw_video_4_t.mp4"
@@ -162,11 +162,29 @@ def main(config: ActorConfig):
                     print("[UE event] episode done (disconnect terminal append)")
 
                     with UE_EVENT_LOCK:
+                        pending_boss_hits = UE_EVENT_STATE["boss_hit_count"]
+                        pending_player_hits = UE_EVENT_STATE["player_hit_count"]
+
+                        UE_EVENT_STATE["boss_hit_count"] = 0
+                        UE_EVENT_STATE["player_hit_count"] = 0
+
+                    attribute_hit_counts(
+                        last_step_cache=last_step_cache,
+                        event_audit=event_audit,
+                        boss_hit_count=pending_boss_hits,
+                        player_hit_count=pending_player_hits,
+                    )
+
+                    with UE_EVENT_LOCK:
                         event_audit_snapshot = {
                             "player_hits_on_boss_raw":
                                 event_audit.player_hits_on_boss_raw,
                             "boss_hits_on_player_raw":
                                 event_audit.boss_hits_on_player_raw,
+                            "unattributed_player_hits_on_boss":
+                                event_audit.unattributed_player_hits_on_boss,
+                            "unattributed_boss_hits_on_player":
+                                event_audit.unattributed_boss_hits_on_player
                         }
 
                     finalize_episode(
@@ -212,11 +230,29 @@ def main(config: ActorConfig):
             if episode_done and episode_result and not terminal_handled:
 
                 with UE_EVENT_LOCK:
+                    pending_boss_hits = UE_EVENT_STATE["boss_hit_count"]
+                    pending_player_hits = UE_EVENT_STATE["player_hit_count"]
+
+                    UE_EVENT_STATE["boss_hit_count"] = 0
+                    UE_EVENT_STATE["player_hit_count"] = 0
+
+                attribute_hit_counts(
+                    last_step_cache=last_step_cache,
+                    event_audit=event_audit,
+                    boss_hit_count=pending_boss_hits,
+                    player_hit_count=pending_player_hits,
+                )
+
+                with UE_EVENT_LOCK:
                     event_audit_snapshot = {
                         "player_hits_on_boss_raw":
                             event_audit.player_hits_on_boss_raw,
                         "boss_hits_on_player_raw":
                             event_audit.boss_hits_on_player_raw,
+                        "unattributed_player_hits_on_boss":
+                            event_audit.unattributed_player_hits_on_boss,
+                        "unattributed_boss_hits_on_player":
+                            event_audit.unattributed_boss_hits_on_player
                     }
 
                 finalize_episode(
@@ -512,6 +548,10 @@ def main(config: ActorConfig):
                 if ue_episode_done:
                     last_step_cache["ue_episode_done"] = True
                     last_step_cache["ue_episode_result"] = ue_episode_result
+            else:
+                event_audit.unattributed_player_hits_on_boss += ue_boss_hit_count
+                event_audit.unattributed_boss_hits_on_player += ue_player_hit_count
+                
             
             if ue_att1_start:
                 print("[UE event] boss normal attack start")
@@ -541,6 +581,10 @@ def main(config: ActorConfig):
                             event_audit.player_hits_on_boss_raw,
                         "boss_hits_on_player_raw":
                             event_audit.boss_hits_on_player_raw,
+                        "unattributed_player_hits_on_boss":
+                            event_audit.unattributed_player_hits_on_boss,
+                        "unattributed_boss_hits_on_player":
+                            event_audit.unattributed_boss_hits_on_player
                     }
 
                 finalize_episode(
