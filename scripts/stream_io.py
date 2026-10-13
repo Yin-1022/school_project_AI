@@ -11,7 +11,7 @@ ATT1_DURATION_SEC = 52 / 30.0
 ATT2_DURATION_SEC = 69 / 30.0
 ATTACK_TIMEOUT_MARGIN_SEC = 0.15
 
-def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=12346):
+def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, event_port=12346):
     def on_att1_start(address, *args):
         with UE_EVENT_LOCK:
             UE_EVENT_STATE["att1_active"] = True
@@ -58,6 +58,7 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=12346):
         print(f"[← UE] Boss 被擊中！args: {args}\n")
         with UE_EVENT_LOCK:
             UE_EVENT_STATE["boss_hit_pulse"] = True
+            event_audit.player_hits_on_boss_raw += 1
         if health <= 0:
             # Boss dead = Player win
             set_episode_result(result=-1,source="boss_health<=0",)
@@ -69,6 +70,7 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=12346):
         print(f"[← UE] 玩家血量：{health}")
         with UE_EVENT_LOCK:
             UE_EVENT_STATE["player_hit_pulse"] = True
+            event_audit.boss_hits_on_player_raw += 1
 
         if health <= 0:
             # Player dead = Boss win

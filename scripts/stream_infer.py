@@ -36,7 +36,7 @@ from constant import (
     ACTOR_CHECKPOINT_PATH
 )
 from behavior_policy import compute_behavior_probs
-from episode_metrics import EpisodeMetrics, format_summary
+from episode_metrics import EpisodeMetrics, EpisodeEventAudit, format_summary
 
 # RAW_DIR = Path("data/raw_videos")
 # video_path = RAW_DIR / "raw_video_4_t.mp4"
@@ -98,8 +98,10 @@ def main(config: ActorConfig):
         action_client = get_osc_client(
             host=config.ue_host,
             action_port=config.action_port,
-        )   
-        receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=config.event_port)
+        )
+        episode_metrics = EpisodeMetrics(actor_id=config.actor_id)
+        event_audit = EpisodeEventAudit()
+        receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, event_port=config.event_port)
         action_cls_model = load_action_cls_model(str(ACTION_CLS_WEIGHTS_PATH), device=device)
 
         presence_model = load_presence_model(
@@ -129,7 +131,6 @@ def main(config: ActorConfig):
         hit_turn_attempts = 0
         terminal_handled = False
         force_decision = False
-        episode_metrics = EpisodeMetrics(actor_id=config.actor_id)
         ACTION_START_TIMEOUT_SEC = 1.0
         ACTION_END_TIMEOUT_SEC = 5.0
         global SEQ
@@ -160,10 +161,19 @@ def main(config: ActorConfig):
                 if episode_done_now and not terminal_handled:
                     print("[UE event] episode done (disconnect terminal append)")
 
+                    with UE_EVENT_LOCK:
+                        event_audit_snapshot = {
+                            "player_hits_on_boss_raw":
+                                event_audit.player_hits_on_boss_raw,
+                            "boss_hits_on_player_raw":
+                                event_audit.boss_hits_on_player_raw,
+                        }
+
                     finalize_episode(
                         rollout_buffer=rollout_buffer,
                         last_step_cache=last_step_cache,
                         episode_metrics=episode_metrics,
+                        event_audit=event_audit_snapshot,
                         actor_id=config.actor_id,
                         episode_result=episode_result_now,
                         policy_step=loaded_step,
@@ -181,10 +191,11 @@ def main(config: ActorConfig):
                             "on disconnect without terminal result"
                         )
                         rollout_buffer.clear()
-                        if not terminal_handled:
-                            episode_metrics = EpisodeMetrics(
-                                actor_id=config.actor_id
-                            )
+                    if not terminal_handled:
+                        episode_metrics = EpisodeMetrics(actor_id=config.actor_id)
+
+                        with UE_EVENT_LOCK:
+                            event_audit.reset()
 
                 print("[stream] disconnected, waiting for UE reconnect")
                 last_step_cache = None
@@ -200,10 +211,19 @@ def main(config: ActorConfig):
 
             if episode_done and episode_result and not terminal_handled:
 
+                with UE_EVENT_LOCK:
+                    event_audit_snapshot = {
+                        "player_hits_on_boss_raw":
+                            event_audit.player_hits_on_boss_raw,
+                        "boss_hits_on_player_raw":
+                            event_audit.boss_hits_on_player_raw,
+                    }
+
                 finalize_episode(
                     rollout_buffer=rollout_buffer,
                     last_step_cache=last_step_cache,
                     episode_metrics=episode_metrics,
+                    event_audit=event_audit_snapshot,
                     actor_id=config.actor_id,
                     episode_result=episode_result,
                     policy_step=loaded_step,
@@ -238,6 +258,8 @@ def main(config: ActorConfig):
                 hit_turn_attempts = 0
                 terminal_handled = False
                 episode_metrics = EpisodeMetrics(actor_id=config.actor_id)
+                with UE_EVENT_LOCK:
+                    event_audit.reset()
 
                 last_step_cache = None
 
@@ -516,10 +538,19 @@ def main(config: ActorConfig):
             if ue_episode_done and not terminal_handled:
                 print("[UE event] episode done")
 
+                with UE_EVENT_LOCK:
+                    event_audit_snapshot = {
+                        "player_hits_on_boss_raw":
+                            event_audit.player_hits_on_boss_raw,
+                        "boss_hits_on_player_raw":
+                            event_audit.boss_hits_on_player_raw,
+                    }
+
                 finalize_episode(
                     rollout_buffer=rollout_buffer,
                     last_step_cache=last_step_cache,
                     episode_metrics=episode_metrics,
+                    event_audit=event_audit_snapshot,
                     actor_id=config.actor_id,
                     episode_result=ue_episode_result,
                     policy_step=loaded_step,
@@ -914,6 +945,7 @@ def finalize_episode(
     rollout_buffer,
     last_step_cache,
     episode_metrics,
+    event_audit,
     actor_id,
     episode_result,
     policy_step,
@@ -937,6 +969,7 @@ def finalize_episode(
 
     summary = episode_metrics.finish_episode(
         episode_result=episode_result,
+        event_audit=event_audit,
         policy_step=policy_step,
     )
 

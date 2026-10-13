@@ -3,6 +3,15 @@ from collections import Counter
 from time import monotonic
 
 @dataclass
+class EpisodeEventAudit:
+    player_hits_on_boss_raw: int = 0
+    boss_hits_on_player_raw: int = 0
+
+    def reset(self):
+        self.player_hits_on_boss_raw = 0
+        self.boss_hits_on_player_raw = 0
+
+@dataclass
 class EpisodeMetrics:
     actor_id: str
 
@@ -17,6 +26,8 @@ class EpisodeMetrics:
 
     boss_hits_on_player: int = 0
     player_hits_on_boss: int = 0
+    raw_player_hits_on_boss: int = 0
+    raw_boss_hits_on_player: int = 0
 
     action_counts: Counter = field(default_factory=Counter)
 
@@ -60,10 +71,13 @@ class EpisodeMetrics:
             player_hits_on_boss=cache["ue_boss_hit_count"],
         )
 
-    def finish_episode(self, episode_result: int, policy_step: int | None = None) -> dict:
+    def finish_episode(self, episode_result: int, event_audit, policy_step: int | None = None) -> dict:
         self.episode_result = episode_result
         self.policy_step = policy_step
         self.duration = monotonic() - self.start_time
+
+        self.raw_player_hits_on_boss = (event_audit["player_hits_on_boss_raw"])
+        self.raw_boss_hits_on_player = (event_audit["boss_hits_on_player_raw"])
 
         return self.build_summary()
 
@@ -91,6 +105,8 @@ class EpisodeMetrics:
 
             "boss_hits_on_player": self.boss_hits_on_player,
             "player_hits_on_boss": self.player_hits_on_boss,
+            "raw_player_hits_on_boss": self.raw_player_hits_on_boss,
+            "raw_boss_hits_on_player": self.raw_boss_hits_on_player,
 
             "action_counts": dict(self.action_counts),
         }
@@ -108,9 +124,6 @@ def format_summary(summary: dict) -> str:
         f"  High: {summary['high_reward_total']:+.2f} | "
         f"  Medium: {summary['medium_reward_total']:+.2f} | "
         f"  Low: {summary['low_reward_total']:+.2f} | \n"
-        "\nHits:\n"
-        f"  Boss -> Player: {summary['boss_hits_on_player']} | "
-        f"  Player -> Boss: {summary['player_hits_on_boss']} | \n"
         "\nActions:\n"
         f"  Advance: {summary['action_counts'].get('Advance', 0)}\n"
         f"  Hold: {summary['action_counts'].get('Hold', 0)}\n"
@@ -121,5 +134,14 @@ def format_summary(summary: dict) -> str:
         f"  EvadeBack: {summary['action_counts'].get('EvadeBack', 0)}\n"
         f"  PatrolRight: {summary['action_counts'].get('PatrolStepRight', 0)}\n"
         f"  PatrolLeft: {summary['action_counts'].get('PatrolStepLeft', 0)}\n"
+        "====================================="
+
+        "\nAttributed Hits:\n"
+        f"  Boss -> Player: {summary['boss_hits_on_player']} | "
+        f"  Player -> Boss: {summary['player_hits_on_boss']} | \n"
+
+        "\nRaw UE Hit Events:\n"
+        f"  Boss -> Player: {summary['raw_boss_hits_on_player']} | "
+        f"  Player -> Boss: {summary['raw_player_hits_on_boss']} |\n"
         "====================================="
     )
