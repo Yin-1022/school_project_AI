@@ -57,7 +57,7 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, event_port=12346
         health = float(args[0])
         print(f"[← UE] Boss 被擊中！args: {args}\n")
         with UE_EVENT_LOCK:
-            UE_EVENT_STATE["boss_hit_pulse"] = True
+            UE_EVENT_STATE["boss_hit_count"] += 1
             event_audit.player_hits_on_boss_raw += 1
         if health <= 0:
             # Boss dead = Player win
@@ -69,7 +69,7 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, event_port=12346
         health = args[0]
         print(f"[← UE] 玩家血量：{health}")
         with UE_EVENT_LOCK:
-            UE_EVENT_STATE["player_hit_pulse"] = True
+            UE_EVENT_STATE["player_hit_count"] += 1
             event_audit.boss_hits_on_player_raw += 1
 
         if health <= 0:
@@ -259,8 +259,8 @@ def reset_ue_episode_state(UE_EVENT_LOCK, UE_EVENT_STATE):
         UE_EVENT_STATE["att1_deadline"] = None
         UE_EVENT_STATE["att2_deadline"] = None
 
-        UE_EVENT_STATE["boss_hit_pulse"] = False
-        UE_EVENT_STATE["player_hit_pulse"] = False
+        UE_EVENT_STATE["boss_hit_pending_count"] = 0
+        UE_EVENT_STATE["player_hit_pending_count"] = 0
 
         UE_EVENT_STATE["episode_start_pulse"] = False
         UE_EVENT_STATE["cantmove_pulse"] = False

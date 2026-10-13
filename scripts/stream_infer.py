@@ -60,8 +60,8 @@ UE_EVENT_STATE = {
     "att1_deadline": None,
     "att2_deadline": None,
 
-    "boss_hit_pulse": False,
-    "player_hit_pulse": False,
+    "boss_hit_count": 0,
+    "player_hit_count": 0,
     "episode_done_flag": False,
     "episode_start_pulse": False,
     "episode_result": 0,
@@ -480,8 +480,8 @@ def main(config: ActorConfig):
                 ue_att2_start = UE_EVENT_STATE["att2_start_pulse"]
                 ue_att2_end = UE_EVENT_STATE["att2_end_pulse"]
 
-                ue_boss_hit = UE_EVENT_STATE["boss_hit_pulse"]
-                ue_player_hit = UE_EVENT_STATE["player_hit_pulse"]
+                ue_boss_hit_count = UE_EVENT_STATE["boss_hit_count"]
+                ue_player_hit_count = UE_EVENT_STATE["player_hit_count"]
                 ue_episode_done = UE_EVENT_STATE["episode_done_flag"]
                 ue_episode_result = UE_EVENT_STATE["episode_result"]
                 notseeplayer = UE_EVENT_STATE["notseeplayer_pulse"]
@@ -491,16 +491,13 @@ def main(config: ActorConfig):
                 UE_EVENT_STATE["att1_end_pulse"] = False
                 UE_EVENT_STATE["att2_start_pulse"] = False
                 UE_EVENT_STATE["att2_end_pulse"] = False
-                UE_EVENT_STATE["boss_hit_pulse"] = False
-                UE_EVENT_STATE["player_hit_pulse"] = False
+                UE_EVENT_STATE["boss_hit_count"] = 0
+                UE_EVENT_STATE["player_hit_count"] = 0
                 UE_EVENT_STATE["notseeplayer_pulse"] = False
 
             if last_step_cache is not None:
-                if ue_player_hit:
-                    last_step_cache["ue_player_hit_count"] += 1
-
-                if ue_boss_hit:
-                    last_step_cache["ue_boss_hit_count"] += 1
+                last_step_cache["ue_player_hit_count"] += ue_player_hit_count
+                last_step_cache["ue_boss_hit_count"] += ue_boss_hit_count
 
                 if ue_att1_start:
                     last_step_cache["ue_att1_start"] = True
@@ -524,8 +521,8 @@ def main(config: ActorConfig):
                 print("[UE event] boss skill attack1 start")
             if ue_att2_end:
                 print("[UE event] boss skill attack1 end")
-            if ue_boss_hit:
-                print("[UE event] boss hit")
+            if ue_boss_hit_count>0:
+                print(f"[UE event] boss hit x {ue_boss_hit_count}")
 
                 if (info["visible"] == 0 and not recovery_active and hit_turn_attempts < 2):
                         hit_turn_pending = True
@@ -533,8 +530,8 @@ def main(config: ActorConfig):
                         print("[hit reaction] boss hit while player unseen -> queue SearchTurn +135")
                 else:
                     hit_turn_pending = False
-            if ue_player_hit:
-                print("[UE event] player hit")
+            if ue_player_hit_count>0:
+                print(f"[UE event] player hit x {ue_player_hit_count}")
             if ue_episode_done and not terminal_handled:
                 print("[UE event] episode done")
 
