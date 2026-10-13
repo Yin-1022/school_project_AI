@@ -259,8 +259,8 @@ def reset_ue_episode_state(UE_EVENT_LOCK, UE_EVENT_STATE):
         UE_EVENT_STATE["att1_deadline"] = None
         UE_EVENT_STATE["att2_deadline"] = None
 
-        UE_EVENT_STATE["boss_hit_pending_count"] = 0
-        UE_EVENT_STATE["player_hit_pending_count"] = 0
+        UE_EVENT_STATE["boss_hit_count"] = 0
+        UE_EVENT_STATE["player_hit_count"] = 0
 
         UE_EVENT_STATE["episode_start_pulse"] = False
         UE_EVENT_STATE["cantmove_pulse"] = False
