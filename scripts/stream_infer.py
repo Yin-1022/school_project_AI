@@ -161,31 +161,21 @@ def main(config: ActorConfig):
                 if episode_done_now and not terminal_handled:
                     print("[UE event] episode done (disconnect terminal append)")
 
-                    with UE_EVENT_LOCK:
-                        pending_boss_hits = UE_EVENT_STATE["boss_hit_count"]
-                        pending_player_hits = UE_EVENT_STATE["player_hit_count"]
-
-                        UE_EVENT_STATE["boss_hit_count"] = 0
-                        UE_EVENT_STATE["player_hit_count"] = 0
+                    terminal_hit_state = capture_terminal_hit_state(event_audit)
 
                     attribute_hit_counts(
                         last_step_cache=last_step_cache,
                         event_audit=event_audit,
-                        boss_hit_count=pending_boss_hits,
-                        player_hit_count=pending_player_hits,
+                        boss_hit_count=terminal_hit_state["pending_boss_hits"],
+                        player_hit_count=terminal_hit_state["pending_player_hits"]
                     )
 
-                    with UE_EVENT_LOCK:
-                        event_audit_snapshot = {
-                            "player_hits_on_boss_raw":
-                                event_audit.player_hits_on_boss_raw,
-                            "boss_hits_on_player_raw":
-                                event_audit.boss_hits_on_player_raw,
-                            "unattributed_player_hits_on_boss":
-                                event_audit.unattributed_player_hits_on_boss,
-                            "unattributed_boss_hits_on_player":
-                                event_audit.unattributed_boss_hits_on_player
-                        }
+                    event_audit_snapshot = {
+                        "player_hits_on_boss_raw":terminal_hit_state["raw_player_hits_on_boss"],
+                        "boss_hits_on_player_raw":terminal_hit_state["raw_boss_hits_on_player"],
+                        "unattributed_player_hits_on_boss":event_audit.unattributed_player_hits_on_boss,
+                        "unattributed_boss_hits_on_player":event_audit.unattributed_boss_hits_on_player,
+                    }
 
                     finalize_episode(
                         rollout_buffer=rollout_buffer,
@@ -229,31 +219,21 @@ def main(config: ActorConfig):
 
             if episode_done and episode_result and not terminal_handled:
 
-                with UE_EVENT_LOCK:
-                    pending_boss_hits = UE_EVENT_STATE["boss_hit_count"]
-                    pending_player_hits = UE_EVENT_STATE["player_hit_count"]
-
-                    UE_EVENT_STATE["boss_hit_count"] = 0
-                    UE_EVENT_STATE["player_hit_count"] = 0
+                terminal_hit_state = capture_terminal_hit_state(event_audit)
 
                 attribute_hit_counts(
                     last_step_cache=last_step_cache,
                     event_audit=event_audit,
-                    boss_hit_count=pending_boss_hits,
-                    player_hit_count=pending_player_hits,
+                    boss_hit_count=terminal_hit_state["pending_boss_hits"],
+                    player_hit_count=terminal_hit_state["pending_player_hits"],
                 )
 
-                with UE_EVENT_LOCK:
-                    event_audit_snapshot = {
-                        "player_hits_on_boss_raw":
-                            event_audit.player_hits_on_boss_raw,
-                        "boss_hits_on_player_raw":
-                            event_audit.boss_hits_on_player_raw,
-                        "unattributed_player_hits_on_boss":
-                            event_audit.unattributed_player_hits_on_boss,
-                        "unattributed_boss_hits_on_player":
-                            event_audit.unattributed_boss_hits_on_player
-                    }
+                event_audit_snapshot = {
+                    "player_hits_on_boss_raw":terminal_hit_state["raw_player_hits_on_boss"],
+                    "boss_hits_on_player_raw":terminal_hit_state["raw_boss_hits_on_player"],
+                    "unattributed_player_hits_on_boss":event_audit.unattributed_player_hits_on_boss,
+                    "unattributed_boss_hits_on_player":event_audit.unattributed_boss_hits_on_player,
+                }
 
                 finalize_episode(
                     rollout_buffer=rollout_buffer,
@@ -575,17 +555,21 @@ def main(config: ActorConfig):
             if ue_episode_done and not terminal_handled:
                 print("[UE event] episode done")
 
-                with UE_EVENT_LOCK:
-                    event_audit_snapshot = {
-                        "player_hits_on_boss_raw":
-                            event_audit.player_hits_on_boss_raw,
-                        "boss_hits_on_player_raw":
-                            event_audit.boss_hits_on_player_raw,
-                        "unattributed_player_hits_on_boss":
-                            event_audit.unattributed_player_hits_on_boss,
-                        "unattributed_boss_hits_on_player":
-                            event_audit.unattributed_boss_hits_on_player
-                    }
+                terminal_hit_state = capture_terminal_hit_state(event_audit)
+
+                attribute_hit_counts(
+                    last_step_cache=last_step_cache,
+                    event_audit=event_audit,
+                    boss_hit_count=terminal_hit_state["pending_boss_hits"],
+                    player_hit_count=terminal_hit_state["pending_player_hits"]
+                )
+
+                event_audit_snapshot = {
+                    "player_hits_on_boss_raw":terminal_hit_state["raw_player_hits_on_boss"],
+                    "boss_hits_on_player_raw":terminal_hit_state["raw_boss_hits_on_player"],
+                    "unattributed_player_hits_on_boss":event_audit.unattributed_player_hits_on_boss,
+                    "unattributed_boss_hits_on_player":event_audit.unattributed_boss_hits_on_player,
+                }
 
                 finalize_episode(
                     rollout_buffer=rollout_buffer,
@@ -1048,6 +1032,30 @@ def append_and_record_step(
             selected_reward=resolved["reward"]
         )
     return rewards
+
+def capture_terminal_hit_state(event_audit):
+
+    with UE_EVENT_LOCK:
+        pending_boss_hits = UE_EVENT_STATE["boss_hit_count"]
+        pending_player_hits = UE_EVENT_STATE["player_hit_count"]
+
+        # Consume pending hit events.
+        UE_EVENT_STATE["boss_hit_count"] = 0
+        UE_EVENT_STATE["player_hit_count"] = 0
+
+        # Freeze raw OSC-event counts at the same moment.
+        raw_player_hits_on_boss = event_audit.player_hits_on_boss_raw
+        raw_boss_hits_on_player = event_audit.boss_hits_on_player_raw
+
+    return {
+        # Pending events still waiting for attribution
+        "pending_boss_hits": pending_boss_hits,
+        "pending_player_hits": pending_player_hits,
+
+        # Raw UE events received during this episode
+        "raw_player_hits_on_boss": raw_player_hits_on_boss,
+        "raw_boss_hits_on_player": raw_boss_hits_on_player,
+    }
 
 # def save_teacher_sample(frames, extra, action_name, frame_id_end):
 #     out_dir = Path("data/teacher_samples")
