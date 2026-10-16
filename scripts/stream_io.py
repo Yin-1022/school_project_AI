@@ -6,7 +6,6 @@ import threading
 import socket
 import numpy as np
 import cv2
-from episode_metrics import EpisodeEventAudit, EpisodeMetrics
 
 ATT1_DURATION_SEC = 52 / 30.0
 ATT2_DURATION_SEC = 69 / 30.0

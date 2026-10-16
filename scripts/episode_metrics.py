@@ -21,7 +21,7 @@ class EpisodeEventAudit:
 
         damage = max(0.0, self.final_player_health - current_health)
 
-        self.boss.damage_to_player_raw += damage
+        self.boss_damage_to_player_raw += damage
         self.final_player_health = current_health
 
         return damage
@@ -31,7 +31,7 @@ class EpisodeEventAudit:
 
         damage = max(0.0, self.final_boss_health - current_health)
 
-        self.player.damage_to_boss_raw += damage
+        self.player_damage_to_boss_raw += damage
         self.final_boss_health = current_health
 
         return damage
@@ -80,6 +80,8 @@ class EpisodeMetrics:
 
     final_player_health: float = 0.0
     final_boss_health: float = 0.0
+    player_max_hp: float = 0.0
+    boss_max_hp: float = 0.0
 
     action_counts: Counter = field(default_factory=Counter)
 
@@ -137,10 +139,12 @@ class EpisodeMetrics:
         self.player_damage_to_boss_raw = (event_audit["player_damage_to_boss_raw"])
         self.final_player_health = (event_audit["final_player_health"])
         self.final_boss_health = (event_audit["final_boss_health"])
+        self.player_max_hp = (event_audit["player_max_hp"])
+        self.boss_max_hp = (event_audit["boss_max_hp"])
 
         #From boss perspective
-        self.normalized_damage_dealt = self.player_damage_to_boss_raw / event_audit.player_max_hp
-        self.normalized_damage_taken = self.boss_damage_to_player_raw / event_audit.boss_max_hp
+        self.normalized_damage_dealt = self.boss_damage_to_player_raw / event_audit["player_max_hp"]
+        self.normalized_damage_taken = self.player_damage_to_boss_raw / event_audit["boss_max_hp"]
         self.normalized_damage_net = self.normalized_damage_dealt - self.normalized_damage_taken
 
         return self.build_summary()
@@ -173,6 +177,19 @@ class EpisodeMetrics:
             "raw_boss_hits_on_player": self.raw_boss_hits_on_player,
             "unattributed_player_hits_on_boss": self.unattributed_player_hits_on_boss,
             "unattributed_boss_hits_on_player": self.unattributed_boss_hits_on_player,
+
+            "boss_damage_to_player_raw": self.boss_damage_to_player_raw,
+            "player_damage_to_boss_raw": self.player_damage_to_boss_raw,
+
+            "normalized_damage_dealt":self.normalized_damage_dealt,
+            "normalized_damage_taken":self.normalized_damage_taken,
+            "normalized_damage_net":self.normalized_damage_net,
+
+            "final_player_health":self.final_player_health,
+            "final_boss_health":self.final_boss_health,
+
+            "player_max_hp":self.player_max_hp,
+            "boss_max_hp":self.boss_max_hp,
 
             "action_counts": dict(self.action_counts),
         }
@@ -230,8 +247,8 @@ def format_summary(summary: dict) -> str:
         "====================================="
         "\nDamage Summary:\n"
         "Damage Audit:\n"
-        f"  Boss -> Player: {summary['boss_damage_to_player_raw']:.2f}/{summary['boss_max_hp']:.2f} HP | Normalized: {summary['normalized_damage_taken']:.2f} | \n"
-        f"  Player -> Boss: {summary['player_damage_to_boss_raw']:.2f}/{summary['player_max_hp']:.2f} HP | Normalized: {summary['normalized_damage_dealt']:.2f} | \n"
+        f"  Boss -> Player: {summary['boss_damage_to_player_raw']:.2f}/{summary['player_max_hp']:.2f} HP | Normalized: {summary['normalized_damage_dealt']:.2f} | \n"
+        f"  Player -> Boss: {summary['player_damage_to_boss_raw']:.2f}/{summary['boss_max_hp']:.2f} HP | Normalized: {summary['normalized_damage_taken']:.2f} | \n"
         f"  Net Damage: {summary['normalized_damage_net']:.2f} | \n"
 
         "\nFinal Health:\n"

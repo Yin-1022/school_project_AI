@@ -163,24 +163,26 @@ def main(config: ActorConfig):
                 if episode_done_now and not terminal_handled:
                     print("[UE event] episode done (disconnect terminal append)")
 
-                    terminal_hit_state = capture_terminal_combat_state(event_audit)
+                    terminal_combat_state = capture_terminal_combat_state(event_audit)
 
                     attribute_hit_counts(
                         last_step_cache=last_step_cache,
                         event_audit=event_audit,
-                        boss_hit_count=terminal_hit_state["pending_boss_hits"],
-                        player_hit_count=terminal_hit_state["pending_player_hits"]
+                        boss_hit_count=terminal_combat_state["pending_boss_hits"],
+                        player_hit_count=terminal_combat_state["pending_player_hits"]
                     )
 
                     event_audit_snapshot = {
-                        "player_hits_on_boss_raw":terminal_hit_state["raw_player_hits_on_boss"],
-                        "boss_hits_on_player_raw":terminal_hit_state["raw_boss_hits_on_player"],
+                        "player_hits_on_boss_raw":terminal_combat_state["raw_player_hits_on_boss"],
+                        "boss_hits_on_player_raw":terminal_combat_state["raw_boss_hits_on_player"],
                         "unattributed_player_hits_on_boss":event_audit.unattributed_player_hits_on_boss,
                         "unattributed_boss_hits_on_player":event_audit.unattributed_boss_hits_on_player,
-                        "boss_damage_to_player_raw":event_audit.boss_damage_to_player_raw,
-                        "player_damage_to_boss_raw":event_audit.player_damage_to_boss_raw,
-                        "final_player_health":event_audit.final_player_health,
-                        "final_boss_health":event_audit.final_boss_health
+                        "boss_damage_to_player_raw":terminal_combat_state["boss_damage_to_player_raw"],
+                        "player_damage_to_boss_raw":terminal_combat_state["player_damage_to_boss_raw"],
+                        "final_player_health":terminal_combat_state["final_player_health"],
+                        "final_boss_health":terminal_combat_state["final_boss_health"],
+                        "player_max_hp": event_audit.player_max_hp,
+                        "boss_max_hp": event_audit.boss_max_hp
                     }
 
                     finalize_episode(
@@ -225,24 +227,26 @@ def main(config: ActorConfig):
 
             if episode_done and episode_result and not terminal_handled:
 
-                terminal_hit_state = capture_terminal_combat_state(event_audit)
+                terminal_combat_state = capture_terminal_combat_state(event_audit)
 
                 attribute_hit_counts(
                     last_step_cache=last_step_cache,
                     event_audit=event_audit,
-                    boss_hit_count=terminal_hit_state["pending_boss_hits"],
-                    player_hit_count=terminal_hit_state["pending_player_hits"],
+                    boss_hit_count=terminal_combat_state["pending_boss_hits"],
+                    player_hit_count=terminal_combat_state["pending_player_hits"],
                 )
 
                 event_audit_snapshot = {
-                    "player_hits_on_boss_raw":terminal_hit_state["raw_player_hits_on_boss"],
-                    "boss_hits_on_player_raw":terminal_hit_state["raw_boss_hits_on_player"],
+                    "player_hits_on_boss_raw":terminal_combat_state["raw_player_hits_on_boss"],
+                    "boss_hits_on_player_raw":terminal_combat_state["raw_boss_hits_on_player"],
                     "unattributed_player_hits_on_boss":event_audit.unattributed_player_hits_on_boss,
                     "unattributed_boss_hits_on_player":event_audit.unattributed_boss_hits_on_player,
-                    "boss_damage_to_player_raw":event_audit.boss_damage_to_player_raw,
-                    "player_damage_to_boss_raw":event_audit.player_damage_to_boss_raw,
-                    "final_player_health":event_audit.final_player_health,
-                    "final_boss_health":event_audit.final_boss_health
+                    "boss_damage_to_player_raw":terminal_combat_state["boss_damage_to_player_raw"],
+                    "player_damage_to_boss_raw":terminal_combat_state["player_damage_to_boss_raw"],
+                    "final_player_health":terminal_combat_state["final_player_health"],
+                    "final_boss_health":terminal_combat_state["final_boss_health"],
+                    "player_max_hp": event_audit.player_max_hp,
+                    "boss_max_hp": event_audit.boss_max_hp
                 }
 
                 finalize_episode(
@@ -565,24 +569,26 @@ def main(config: ActorConfig):
             if ue_episode_done and not terminal_handled:
                 print("[UE event] episode done")
 
-                terminal_hit_state = capture_terminal_combat_state(event_audit)
+                terminal_combat_state = capture_terminal_combat_state(event_audit)
 
                 attribute_hit_counts(
                     last_step_cache=last_step_cache,
                     event_audit=event_audit,
-                    boss_hit_count=terminal_hit_state["pending_boss_hits"],
-                    player_hit_count=terminal_hit_state["pending_player_hits"]
+                    boss_hit_count=terminal_combat_state["pending_boss_hits"],
+                    player_hit_count=terminal_combat_state["pending_player_hits"]
                 )
 
                 event_audit_snapshot = {
-                    "player_hits_on_boss_raw":terminal_hit_state["raw_player_hits_on_boss"],
-                    "boss_hits_on_player_raw":terminal_hit_state["raw_boss_hits_on_player"],
+                    "player_hits_on_boss_raw":terminal_combat_state["raw_player_hits_on_boss"],
+                    "boss_hits_on_player_raw":terminal_combat_state["raw_boss_hits_on_player"],
                     "unattributed_player_hits_on_boss":event_audit.unattributed_player_hits_on_boss,
                     "unattributed_boss_hits_on_player":event_audit.unattributed_boss_hits_on_player,
-                    "boss_damage_to_player_raw":event_audit.boss_damage_to_player_raw,
-                    "player_damage_to_boss_raw":event_audit.player_damage_to_boss_raw,
-                    "final_player_health":event_audit.final_player_health,
-                    "final_boss_health":event_audit.final_boss_health
+                    "boss_damage_to_player_raw":terminal_combat_state["boss_damage_to_player_raw"],
+                    "player_damage_to_boss_raw":terminal_combat_state["player_damage_to_boss_raw"],
+                    "final_player_health":terminal_combat_state["final_player_health"],
+                    "final_boss_health":terminal_combat_state["final_boss_health"],
+                    "player_max_hp": event_audit.player_max_hp,
+                    "boss_max_hp": event_audit.boss_max_hp
                 }
 
                 finalize_episode(
