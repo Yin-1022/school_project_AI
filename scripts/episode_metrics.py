@@ -9,11 +9,47 @@ class EpisodeEventAudit:
     unattributed_player_hits_on_boss: int = 0
     unattributed_boss_hits_on_player: int = 0
 
+    player_max_hp: float = 100.0
+    boss_max_hp: float = 500.0
+    final_player_health: float = 100.0
+    final_boss_health: float = 500.0
+    boss_damage_to_player_raw: float = 0.0
+    player_damage_to_boss_raw: float = 0.0
+
+    def record_player_health(self, current_health: float):
+        current_health = float(current_health)
+
+        damage = max(0.0, self.final_player_health - current_health)
+
+        self.boss.damage_to_player_raw += damage
+        self.final_player_health = current_health
+
+        return damage
+
+    def record_boss_health(self, current_health: float):
+        current_health = float(current_health)
+
+        damage = max(0.0, self.final_boss_health - current_health)
+
+        self.player.damage_to_boss_raw += damage
+        self.final_boss_health = current_health
+
+        return damage
+
     def reset(self):
         self.player_hits_on_boss_raw = 0
         self.boss_hits_on_player_raw = 0
         self.unattributed_player_hits_on_boss = 0
         self.unattributed_boss_hits_on_player = 0
+
+        self.final_player_health = self.player_max_hp
+        self.final_boss_health = self.boss_max_hp
+        self.boss_damage_to_player_raw = 0.0
+        self.player_damage_to_boss_raw = 0.0
+
+    def __post_init__(self):
+        self.final_player_health = self.player_max_hp
+        self.final_boss_health = self.boss_max_hp
 
 @dataclass
 class EpisodeMetrics:
@@ -34,6 +70,16 @@ class EpisodeMetrics:
     raw_boss_hits_on_player: int = 0
     unattributed_player_hits_on_boss: int = 0
     unattributed_boss_hits_on_player: int = 0
+
+    boss_damage_to_player_raw: float = 0.0
+    player_damage_to_boss_raw: float = 0.0
+
+    normalized_damage_dealt: float = 0.0
+    normalized_damage_taken: float = 0.0
+    normalized_damage_net: float = 0.0
+
+    final_player_health: float = 0.0
+    final_boss_health: float = 0.0
 
     action_counts: Counter = field(default_factory=Counter)
 
@@ -86,6 +132,16 @@ class EpisodeMetrics:
         self.raw_boss_hits_on_player = (event_audit["boss_hits_on_player_raw"])
         self.unattributed_player_hits_on_boss = (event_audit["unattributed_player_hits_on_boss"])
         self.unattributed_boss_hits_on_player = (event_audit["unattributed_boss_hits_on_player"])
+
+        self.boss_damage_to_player_raw = (event_audit["boss_damage_to_player_raw"])
+        self.player_damage_to_boss_raw = (event_audit["player_damage_to_boss_raw"])
+        self.final_player_health = (event_audit["final_player_health"])
+        self.final_boss_health = (event_audit["final_boss_health"])
+
+        #From boss perspective
+        self.normalized_damage_dealt = self.player_damage_to_boss_raw / event_audit.player_max_hp
+        self.normalized_damage_taken = self.boss_damage_to_player_raw / event_audit.boss_max_hp
+        self.normalized_damage_net = self.normalized_damage_dealt - self.normalized_damage_taken
 
         return self.build_summary()
 
@@ -172,4 +228,13 @@ def format_summary(summary: dict) -> str:
         f"  Boss -> Player: {summary['raw_boss_hits_on_player']} | "
         f"  Player -> Boss: {summary['raw_player_hits_on_boss']} |\n"
         "====================================="
+        "\nDamage Summary:\n"
+        "Damage Audit:\n"
+        f"  Boss -> Player: {summary['boss_damage_to_player_raw']:.2f}/{summary['boss_max_hp']:.2f} HP | Normalized: {summary['normalized_damage_taken']:.2f} | \n"
+        f"  Player -> Boss: {summary['player_damage_to_boss_raw']:.2f}/{summary['player_max_hp']:.2f} HP | Normalized: {summary['normalized_damage_dealt']:.2f} | \n"
+        f"  Net Damage: {summary['normalized_damage_net']:.2f} | \n"
+
+        "\nFinal Health:\n"
+        f"  Player: {summary['final_player_health']:.2f}/{summary['player_max_hp']:.2f} HP | \n"
+        f"  Boss: {summary['final_boss_health']:.2f}/{summary['boss_max_hp']:.2f} HP | \n"
     )

@@ -6,6 +6,7 @@ import threading
 import socket
 import numpy as np
 import cv2
+from episode_metrics import EpisodeEventAudit, EpisodeMetrics
 
 ATT1_DURATION_SEC = 52 / 30.0
 ATT2_DURATION_SEC = 69 / 30.0
@@ -54,11 +55,14 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, event_port=12346
     def on_boss_hit(address, *args):
         if not args:
             return
+        
         health = float(args[0])
-        print(f"[← UE] Boss 被擊中！args: {args}\n")
         with UE_EVENT_LOCK:
             UE_EVENT_STATE["boss_hit_count"] += 1
             event_audit.player_hits_on_boss_raw += 1
+            damage = event_audit.record_boss_health(health)
+        print(f"[← UE] Boss受傷！ Hp={health:.1f}, damage={damage:.1f}\n")
+
         if health <= 0:
             # Boss dead = Player win
             set_episode_result(result=-1,source="boss_health<=0",)
@@ -66,11 +70,13 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, event_port=12346
     def on_health_changed(address, *args):
         if not args:
             return
+        
         health = args[0]
-        print(f"[← UE] 玩家血量：{health}")
         with UE_EVENT_LOCK:
             UE_EVENT_STATE["player_hit_count"] += 1
             event_audit.boss_hits_on_player_raw += 1
+            damage = event_audit.record_player_health(health)
+        print(f"[← UE] 玩家受傷！ Hp={health:.1f}, damage={damage:.1f}\n")
 
         if health <= 0:
             # Player dead = Boss win
