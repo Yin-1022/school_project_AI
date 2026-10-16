@@ -600,6 +600,13 @@ def main(config: ActorConfig):
                 execution_started_at = None
 
                 # 這筆不能當成「Strafe 被成功執行」拿去訓練
+                if last_step_cache is not None:
+                    attribute_hit_counts(
+                        last_step_cache=None,
+                        event_audit=event_audit,
+                        boss_hit_count=last_step_cache["ue_boss_hit_count"],
+                        player_hit_count=last_step_cache["ue_player_hit_count"],
+                    )
                 last_step_cache = None
 
                 # 改由 runtime fallback 執行 Advance
