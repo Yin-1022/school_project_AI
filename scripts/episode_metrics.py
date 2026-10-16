@@ -4,13 +4,14 @@ from time import monotonic
 
 @dataclass
 class EpisodeEventAudit:
+    player_max_hp: float
+    boss_max_hp: float
+
     player_hits_on_boss_raw: int = 0
     boss_hits_on_player_raw: int = 0
     unattributed_player_hits_on_boss: int = 0
     unattributed_boss_hits_on_player: int = 0
 
-    player_max_hp: float = 100.0
-    boss_max_hp: float = 500.0
     final_player_health: float = 100.0
     final_boss_health: float = 500.0
     boss_damage_to_player_raw: float = 0.0
@@ -246,7 +247,6 @@ def format_summary(summary: dict) -> str:
         f"  Player -> Boss: {summary['raw_player_hits_on_boss']} |\n"
         "====================================="
         "\nDamage Summary:\n"
-        "Damage Audit:\n"
         f"  Boss -> Player: {summary['boss_damage_to_player_raw']:.2f}/{summary['player_max_hp']:.2f} HP | Normalized: {summary['normalized_damage_dealt']:.2f} | \n"
         f"  Player -> Boss: {summary['player_damage_to_boss_raw']:.2f}/{summary['boss_max_hp']:.2f} HP | Normalized: {summary['normalized_damage_taken']:.2f} | \n"
         f"  Net Damage: {summary['normalized_damage_net']:.2f} | \n"
