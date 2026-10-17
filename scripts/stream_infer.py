@@ -38,7 +38,7 @@ from constant import (
     ACTOR_CHECKPOINT_PATH
 )
 from behavior_policy import compute_behavior_probs
-from episode_metrics import EpisodeMetrics, EpisodeEventAudit, attribute_hit_counts, format_summary
+from episode_metrics import EpisodeMetrics, EpisodeEventAudit, PendingCombatEvents, attribute_combat_events, format_summary
 
 # RAW_DIR = Path("data/raw_videos")
 # video_path = RAW_DIR / "raw_video_4_t.mp4"
@@ -103,7 +103,8 @@ def main(config: ActorConfig):
         )
         episode_metrics = EpisodeMetrics(actor_id=config.actor_id)
         event_audit = EpisodeEventAudit(player_max_hp=PLAYER_MAX_HP, boss_max_hp=BOSS_MAX_HP)
-        receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, event_port=config.event_port)
+        pending_combat = PendingCombatEvents()
+        receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, pending_combat, event_port=config.event_port)
         action_cls_model = load_action_cls_model(str(ACTION_CLS_WEIGHTS_PATH), device=device)
 
         presence_model = load_presence_model(
@@ -163,13 +164,15 @@ def main(config: ActorConfig):
                 if episode_done_now and not terminal_handled:
                     print("[UE event] episode done (disconnect terminal append)")
 
-                    terminal_combat_state = capture_terminal_combat_state(event_audit)
+                    terminal_combat_state = capture_terminal_combat_state(event_audit, pending_combat)
 
-                    attribute_hit_counts(
+                    attribute_combat_events(
                         last_step_cache=last_step_cache,
                         event_audit=event_audit,
                         boss_hit_count=terminal_combat_state["pending_boss_hits"],
-                        player_hit_count=terminal_combat_state["pending_player_hits"]
+                        player_hit_count=terminal_combat_state["pending_player_hits"],
+                        boss_damage=terminal_combat_state["pending_boss_damage"],
+                        player_damage=terminal_combat_state["pending_player_damage"],
                     )
 
                     event_audit_snapshot = {
@@ -227,13 +230,15 @@ def main(config: ActorConfig):
 
             if episode_done and episode_result and not terminal_handled:
 
-                terminal_combat_state = capture_terminal_combat_state(event_audit)
+                terminal_combat_state = capture_terminal_combat_state(event_audit, pending_combat)
 
-                attribute_hit_counts(
+                attribute_combat_events(
                     last_step_cache=last_step_cache,
                     event_audit=event_audit,
                     boss_hit_count=terminal_combat_state["pending_boss_hits"],
                     player_hit_count=terminal_combat_state["pending_player_hits"],
+                    boss_damage=terminal_combat_state["pending_boss_damage"],
+                    player_damage=terminal_combat_state["pending_player_damage"]
                 )
 
                 event_audit_snapshot = {
@@ -510,8 +515,10 @@ def main(config: ActorConfig):
                 ue_att2_start = UE_EVENT_STATE["att2_start_pulse"]
                 ue_att2_end = UE_EVENT_STATE["att2_end_pulse"]
 
-                ue_boss_hit_count = UE_EVENT_STATE["boss_hit_count"]
-                ue_player_hit_count = UE_EVENT_STATE["player_hit_count"]
+                ue_boss_hit_count = pending_combat.boss_hit_count
+                ue_player_hit_count = pending_combat.player_hit_count
+                ue_boss_damage = pending_combat.boss_damage
+                ue_player_damage = pending_combat.player_damage
                 ue_episode_done = UE_EVENT_STATE["episode_done_flag"]
                 ue_episode_result = UE_EVENT_STATE["episode_result"]
                 notseeplayer = UE_EVENT_STATE["notseeplayer_pulse"]
@@ -524,10 +531,13 @@ def main(config: ActorConfig):
                 UE_EVENT_STATE["boss_hit_count"] = 0
                 UE_EVENT_STATE["player_hit_count"] = 0
                 UE_EVENT_STATE["notseeplayer_pulse"] = False
+                pending_combat.reset()
 
             if last_step_cache is not None:
                 last_step_cache["ue_player_hit_count"] += ue_player_hit_count
                 last_step_cache["ue_boss_hit_count"] += ue_boss_hit_count
+                last_step_cache["ue_player_damage"] += ue_player_damage
+                last_step_cache["ue_boss_damage"] += ue_boss_damage
 
                 if ue_att1_start:
                     last_step_cache["ue_att1_start"] = True
@@ -545,6 +555,8 @@ def main(config: ActorConfig):
             else:
                 event_audit.unattributed_player_hits_on_boss += ue_boss_hit_count
                 event_audit.unattributed_boss_hits_on_player += ue_player_hit_count
+                event_audit.unattributed_player_damage_to_boss += ue_boss_damage
+                event_audit.unattributed_boss_damage_to_player += ue_player_damage
                 
             
             if ue_att1_start:
@@ -569,13 +581,15 @@ def main(config: ActorConfig):
             if ue_episode_done and not terminal_handled:
                 print("[UE event] episode done")
 
-                terminal_combat_state = capture_terminal_combat_state(event_audit)
+                terminal_combat_state = capture_terminal_combat_state(event_audit, pending_combat)
 
-                attribute_hit_counts(
+                attribute_combat_events(
                     last_step_cache=last_step_cache,
                     event_audit=event_audit,
                     boss_hit_count=terminal_combat_state["pending_boss_hits"],
-                    player_hit_count=terminal_combat_state["pending_player_hits"]
+                    player_hit_count=terminal_combat_state["pending_player_hits"],
+                    boss_damage=terminal_combat_state["pending_boss_damage"],
+                    player_damage=terminal_combat_state["pending_player_damage"]
                 )
 
                 event_audit_snapshot = {
@@ -621,11 +635,13 @@ def main(config: ActorConfig):
 
                 # 這筆不能當成「Strafe 被成功執行」拿去訓練
                 if last_step_cache is not None:
-                    attribute_hit_counts(
+                    attribute_combat_events(
                         last_step_cache=None,
                         event_audit=event_audit,
                         boss_hit_count=last_step_cache["ue_boss_hit_count"],
                         player_hit_count=last_step_cache["ue_player_hit_count"],
+                        boss_damage=last_step_cache["ue_boss_damage"],
+                        player_damage=last_step_cache["ue_player_damage"],
                     )
                 last_step_cache = None
 
@@ -851,6 +867,8 @@ def main(config: ActorConfig):
                 "ue_att2_end": False,
                 "ue_boss_hit_count": 0,
                 "ue_player_hit_count": 0,
+                "ue_boss_damage": 0,
+                "ue_player_damage": 0,
                 "ue_episode_done": False,
                 "ue_episode_result": 0,
 
@@ -1060,15 +1078,18 @@ def append_and_record_step(
         )
     return rewards
 
-def capture_terminal_combat_state(event_audit):
+def capture_terminal_combat_state(event_audit, pending_combat):
 
     with UE_EVENT_LOCK:
         pending_boss_hits = UE_EVENT_STATE["boss_hit_count"]
         pending_player_hits = UE_EVENT_STATE["player_hit_count"]
+        pending_boss_damage = UE_EVENT_STATE["boss_damage"]
+        pending_player_damage = UE_EVENT_STATE["player_damage"]
 
         # Consume pending hit events.
         UE_EVENT_STATE["boss_hit_count"] = 0
         UE_EVENT_STATE["player_hit_count"] = 0
+        pending_combat.reset()
 
         # Freeze raw OSC-event counts at the same moment.
         raw_player_hits_on_boss = event_audit.player_hits_on_boss_raw
@@ -1083,6 +1104,8 @@ def capture_terminal_combat_state(event_audit):
         # Pending events still waiting for attribution
         "pending_boss_hits": pending_boss_hits,
         "pending_player_hits": pending_player_hits,
+        "pending_boss_damage": pending_boss_damage,
+        "pending_player_damage": pending_player_damage,
 
         # Raw UE events received during this episode
         "raw_player_hits_on_boss": raw_player_hits_on_boss,

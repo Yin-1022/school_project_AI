@@ -3,6 +3,20 @@ from collections import Counter
 from time import monotonic
 
 @dataclass
+class PendingCombatEvents:
+    boss_hit_count: int = 0
+    player_hit_count: int = 0
+
+    boss_damage: float = 0.0
+    player_damage: float = 0.0
+
+    def reset(self):
+        self.boss_hit_count = 0
+        self.player_hit_count = 0
+        self.boss_damage = 0.0
+        self.player_damage = 0.0
+
+@dataclass
 class EpisodeEventAudit:
     player_max_hp: float
     boss_max_hp: float
@@ -16,6 +30,8 @@ class EpisodeEventAudit:
     final_boss_health: float = 500.0
     boss_damage_to_player_raw: float = 0.0
     player_damage_to_boss_raw: float = 0.0
+    unattributed_player_damage_to_boss: float = 0.0
+    unattributed_boss_damage_to_player: float = 0.0
 
     def record_player_health(self, current_health: float):
         current_health = float(current_health)
@@ -71,6 +87,8 @@ class EpisodeMetrics:
     raw_boss_hits_on_player: int = 0
     unattributed_player_hits_on_boss: int = 0
     unattributed_boss_hits_on_player: int = 0
+    attributed_boss_damage_to_player: float = 0.0
+    attributed_player_damage_to_boss: float = 0.0
 
     boss_damage_to_player_raw: float = 0.0
     player_damage_to_boss_raw: float = 0.0
@@ -98,6 +116,8 @@ class EpisodeMetrics:
         selected_reward: float,
         boss_hits_on_player: int,
         player_hits_on_boss: int,
+        boss_damage_to_player: float,
+        player_damage_to_boss: float,
     ):
         self.episode_steps += 1
         self.selected_return += selected_reward
@@ -108,6 +128,8 @@ class EpisodeMetrics:
 
         self.boss_hits_on_player += boss_hits_on_player
         self.player_hits_on_boss += player_hits_on_boss
+        self.attributed_boss_damage_to_player += boss_damage_to_player
+        self.attributed_player_damage_to_boss += player_damage_to_boss
 
         self.action_counts[final_action] += 1
 
@@ -124,6 +146,8 @@ class EpisodeMetrics:
             selected_reward=selected_reward,
             boss_hits_on_player=cache["ue_player_hit_count"],
             player_hits_on_boss=cache["ue_boss_hit_count"],
+            boss_damage_to_player=cache["ue_player_damage"],
+            player_damage_to_boss=cache["ue_boss_damage"],
         )
 
     def finish_episode(self, episode_result: int, event_audit, policy_step: int | None = None) -> dict:
@@ -178,7 +202,8 @@ class EpisodeMetrics:
             "raw_boss_hits_on_player": self.raw_boss_hits_on_player,
             "unattributed_player_hits_on_boss": self.unattributed_player_hits_on_boss,
             "unattributed_boss_hits_on_player": self.unattributed_boss_hits_on_player,
-
+            "attributed_boss_damage_to_player": self.attributed_boss_damage_to_player,
+            "attributed_player_damage_to_boss": self.attributed_player_damage_to_boss,
             "boss_damage_to_player_raw": self.boss_damage_to_player_raw,
             "player_damage_to_boss_raw": self.player_damage_to_boss_raw,
 
@@ -195,19 +220,25 @@ class EpisodeMetrics:
             "action_counts": dict(self.action_counts),
         }
 
-def attribute_hit_counts(
+def attribute_combat_events(
     *,
     last_step_cache,
     event_audit,
     boss_hit_count,
     player_hit_count,
+    boss_damage,
+    player_damage,
 ):
     if last_step_cache is not None:
         last_step_cache["ue_boss_hit_count"] += boss_hit_count
         last_step_cache["ue_player_hit_count"] += player_hit_count
+        last_step_cache["ue_boss_damage"] += boss_damage
+        last_step_cache["ue_player_damage"] += player_damage
     else:
         event_audit.unattributed_player_hits_on_boss += boss_hit_count
         event_audit.unattributed_boss_hits_on_player += player_hit_count
+        event_audit.unattributed_player_damage_to_boss += boss_damage
+        event_audit.unattributed_boss_damage_to_player += player_damage
 
 def format_summary(summary: dict) -> str:
     return (
@@ -246,12 +277,19 @@ def format_summary(summary: dict) -> str:
         f"  Boss -> Player: {summary['raw_boss_hits_on_player']} | "
         f"  Player -> Boss: {summary['raw_player_hits_on_boss']} |\n"
         "====================================="
-        "\nDamage Summary:\n"
-        f"  Boss -> Player: {summary['boss_damage_to_player_raw']:.2f}/{summary['player_max_hp']:.2f} HP | Normalized: {summary['normalized_damage_dealt']:.2f} | \n"
-        f"  Player -> Boss: {summary['player_damage_to_boss_raw']:.2f}/{summary['boss_max_hp']:.2f} HP | Normalized: {summary['normalized_damage_taken']:.2f} | \n"
-        f"  Net Damage: {summary['normalized_damage_net']:.2f} | \n"
-
-        "\nFinal Health:\n"
-        f"  Player: {summary['final_player_health']:.2f}/{summary['player_max_hp']:.2f} HP | \n"
-        f"  Boss: {summary['final_boss_health']:.2f}/{summary['boss_max_hp']:.2f} HP | \n"
+        "\nDamage Audit:\n"
+        f"  Attributed Damage:\n"
+        f"    Boss -> Player: {summary['attributed_boss_damage_to_player']:.2f} | \n"
+        f"    Player -> Boss: {summary['attributed_player_damage_to_boss']:.2f} | \n"
+        f"  Unattributed Damage:\n"
+        f"    Boss -> Player: {summary['unattributed_boss_damage_to_player']:.2f} | \n"
+        f"    Player -> Boss: {summary['unattributed_player_damage_to_boss']:.2f} | \n"
+        f"  Raw Damage:\n"
+        f"    Boss -> Player: {summary['boss_damage_to_player_raw']:.2f}/ {summary['player_max_hp']:.2f} | \n"
+        f"    Player -> Boss: {summary['player_damage_to_boss_raw']:.2f}/ {summary['boss_max_hp']:.2f} | \n"
+        f"  Normalized Damage:\n"
+        f"    Damage Dealt (Boss -> Player): {summary['normalized_damage_dealt']:.4f} | \n"
+        f"    Damage Taken (Player -> Boss): {summary['normalized_damage_taken']:.4f} | \n"
+        f"    Net Damage (Dealt - Taken): {summary['normalized_damage_net']:.4f} | \n"
+        "====================================="
     )

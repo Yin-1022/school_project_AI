@@ -11,7 +11,7 @@ ATT1_DURATION_SEC = 52 / 30.0
 ATT2_DURATION_SEC = 69 / 30.0
 ATTACK_TIMEOUT_MARGIN_SEC = 0.15
 
-def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, event_port=12346):
+def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, pending_combat, event_port=12346):
     def on_att1_start(address, *args):
         with UE_EVENT_LOCK:
             UE_EVENT_STATE["att1_active"] = True
@@ -57,9 +57,10 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, event_port=12346
         
         health = float(args[0])
         with UE_EVENT_LOCK:
-            UE_EVENT_STATE["boss_hit_count"] += 1
             event_audit.player_hits_on_boss_raw += 1
             damage = event_audit.record_boss_health(health)
+            pending_combat.boss_hit_count += 1
+            pending_combat.boss_hit_damage += damage
         print(f"[← UE] Boss受傷！ Hp={health:.1f}, damage={damage:.1f}\n")
 
         if health <= 0:
@@ -72,9 +73,10 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, event_port=12346
         
         health = args[0]
         with UE_EVENT_LOCK:
-            UE_EVENT_STATE["player_hit_count"] += 1
             event_audit.boss_hits_on_player_raw += 1
             damage = event_audit.record_player_health(health)
+            pending_combat.player_hit_count += 1
+            pending_combat.player_hit_damage += damage
         print(f"[← UE] 玩家受傷！ Hp={health:.1f}, damage={damage:.1f}\n")
 
         if health <= 0:
