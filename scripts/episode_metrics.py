@@ -61,6 +61,8 @@ class EpisodeEventAudit:
 
         self.final_player_health = self.player_max_hp
         self.final_boss_health = self.boss_max_hp
+        self.unattributed_player_damage_to_boss = 0.0
+        self.unattributed_boss_damage_to_player = 0.0
         self.boss_damage_to_player_raw = 0.0
         self.player_damage_to_boss_raw = 0.0
 
@@ -87,6 +89,8 @@ class EpisodeMetrics:
     raw_boss_hits_on_player: int = 0
     unattributed_player_hits_on_boss: int = 0
     unattributed_boss_hits_on_player: int = 0
+    unattributed_boss_damage_to_player: float = 0.0
+    unattributed_player_damage_to_boss: float = 0.0
     attributed_boss_damage_to_player: float = 0.0
     attributed_player_damage_to_boss: float = 0.0
 
@@ -160,8 +164,10 @@ class EpisodeMetrics:
         self.unattributed_player_hits_on_boss = (event_audit["unattributed_player_hits_on_boss"])
         self.unattributed_boss_hits_on_player = (event_audit["unattributed_boss_hits_on_player"])
 
-        self.boss_damage_to_player_raw = (event_audit["boss_damage_to_player_raw"])
+        self.unattributed_player_damage_to_boss = (event_audit["unattributed_player_damage_to_boss"])
+        self.unattributed_boss_damage_to_player = (event_audit["unattributed_boss_damage_to_player"])
         self.player_damage_to_boss_raw = (event_audit["player_damage_to_boss_raw"])
+        self.boss_damage_to_player_raw = (event_audit["boss_damage_to_player_raw"])
         self.final_player_health = (event_audit["final_player_health"])
         self.final_boss_health = (event_audit["final_boss_health"])
         self.player_max_hp = (event_audit["player_max_hp"])
@@ -204,6 +210,8 @@ class EpisodeMetrics:
             "unattributed_boss_hits_on_player": self.unattributed_boss_hits_on_player,
             "attributed_boss_damage_to_player": self.attributed_boss_damage_to_player,
             "attributed_player_damage_to_boss": self.attributed_player_damage_to_boss,
+            "unattributed_boss_damage_to_player": self.unattributed_boss_damage_to_player,
+            "unattributed_player_damage_to_boss": self.unattributed_player_damage_to_boss,
             "boss_damage_to_player_raw": self.boss_damage_to_player_raw,
             "player_damage_to_boss_raw": self.player_damage_to_boss_raw,
 

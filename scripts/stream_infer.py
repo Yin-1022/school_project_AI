@@ -62,8 +62,6 @@ UE_EVENT_STATE = {
     "att1_deadline": None,
     "att2_deadline": None,
 
-    "boss_hit_count": 0,
-    "player_hit_count": 0,
     "episode_done_flag": False,
     "episode_start_pulse": False,
     "episode_result": 0,
@@ -178,8 +176,10 @@ def main(config: ActorConfig):
                     event_audit_snapshot = {
                         "player_hits_on_boss_raw":terminal_combat_state["raw_player_hits_on_boss"],
                         "boss_hits_on_player_raw":terminal_combat_state["raw_boss_hits_on_player"],
-                        "unattributed_player_hits_on_boss":event_audit.unattributed_player_hits_on_boss,
                         "unattributed_boss_hits_on_player":event_audit.unattributed_boss_hits_on_player,
+                        "unattributed_player_hits_on_boss":event_audit.unattributed_player_hits_on_boss,
+                        "unattributed_boss_damage_to_player":event_audit.unattributed_boss_damage_to_player,
+                        "unattributed_player_damage_to_boss":event_audit.unattributed_player_damage_to_boss,
                         "boss_damage_to_player_raw":terminal_combat_state["boss_damage_to_player_raw"],
                         "player_damage_to_boss_raw":terminal_combat_state["player_damage_to_boss_raw"],
                         "final_player_health":terminal_combat_state["final_player_health"],
@@ -215,6 +215,7 @@ def main(config: ActorConfig):
 
                         with UE_EVENT_LOCK:
                             event_audit.reset()
+                            pending_combat.reset()
 
                 print("[stream] disconnected, waiting for UE reconnect")
                 last_step_cache = None
@@ -244,8 +245,10 @@ def main(config: ActorConfig):
                 event_audit_snapshot = {
                     "player_hits_on_boss_raw":terminal_combat_state["raw_player_hits_on_boss"],
                     "boss_hits_on_player_raw":terminal_combat_state["raw_boss_hits_on_player"],
-                    "unattributed_player_hits_on_boss":event_audit.unattributed_player_hits_on_boss,
                     "unattributed_boss_hits_on_player":event_audit.unattributed_boss_hits_on_player,
+                    "unattributed_player_hits_on_boss":event_audit.unattributed_player_hits_on_boss,
+                    "unattributed_boss_damage_to_player":event_audit.unattributed_boss_damage_to_player,
+                    "unattributed_player_damage_to_boss":event_audit.unattributed_player_damage_to_boss,
                     "boss_damage_to_player_raw":terminal_combat_state["boss_damage_to_player_raw"],
                     "player_damage_to_boss_raw":terminal_combat_state["player_damage_to_boss_raw"],
                     "final_player_health":terminal_combat_state["final_player_health"],
@@ -295,6 +298,7 @@ def main(config: ActorConfig):
                 episode_metrics = EpisodeMetrics(actor_id=config.actor_id)
                 with UE_EVENT_LOCK:
                     event_audit.reset()
+                    pending_combat.reset()
 
                 last_step_cache = None
 
@@ -528,8 +532,6 @@ def main(config: ActorConfig):
                 UE_EVENT_STATE["att1_end_pulse"] = False
                 UE_EVENT_STATE["att2_start_pulse"] = False
                 UE_EVENT_STATE["att2_end_pulse"] = False
-                UE_EVENT_STATE["boss_hit_count"] = 0
-                UE_EVENT_STATE["player_hit_count"] = 0
                 UE_EVENT_STATE["notseeplayer_pulse"] = False
                 pending_combat.reset()
 
@@ -595,8 +597,10 @@ def main(config: ActorConfig):
                 event_audit_snapshot = {
                     "player_hits_on_boss_raw":terminal_combat_state["raw_player_hits_on_boss"],
                     "boss_hits_on_player_raw":terminal_combat_state["raw_boss_hits_on_player"],
-                    "unattributed_player_hits_on_boss":event_audit.unattributed_player_hits_on_boss,
                     "unattributed_boss_hits_on_player":event_audit.unattributed_boss_hits_on_player,
+                    "unattributed_player_hits_on_boss":event_audit.unattributed_player_hits_on_boss,
+                    "unattributed_boss_damage_to_player":event_audit.unattributed_boss_damage_to_player,
+                    "unattributed_player_damage_to_boss":event_audit.unattributed_player_damage_to_boss,
                     "boss_damage_to_player_raw":terminal_combat_state["boss_damage_to_player_raw"],
                     "player_damage_to_boss_raw":terminal_combat_state["player_damage_to_boss_raw"],
                     "final_player_health":terminal_combat_state["final_player_health"],
@@ -1081,14 +1085,12 @@ def append_and_record_step(
 def capture_terminal_combat_state(event_audit, pending_combat):
 
     with UE_EVENT_LOCK:
-        pending_boss_hits = UE_EVENT_STATE["boss_hit_count"]
-        pending_player_hits = UE_EVENT_STATE["player_hit_count"]
-        pending_boss_damage = UE_EVENT_STATE["boss_damage"]
-        pending_player_damage = UE_EVENT_STATE["player_damage"]
+        pending_boss_hits = pending_combat.boss_hit_count
+        pending_player_hits = pending_combat.player_hit_count
+        pending_boss_damage = pending_combat.boss_damage
+        pending_player_damage = pending_combat.player_damage
 
         # Consume pending hit events.
-        UE_EVENT_STATE["boss_hit_count"] = 0
-        UE_EVENT_STATE["player_hit_count"] = 0
         pending_combat.reset()
 
         # Freeze raw OSC-event counts at the same moment.

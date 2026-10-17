@@ -60,7 +60,7 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, pending_combat, 
             event_audit.player_hits_on_boss_raw += 1
             damage = event_audit.record_boss_health(health)
             pending_combat.boss_hit_count += 1
-            pending_combat.boss_hit_damage += damage
+            pending_combat.boss_damage += damage
         print(f"[← UE] Boss受傷！ Hp={health:.1f}, damage={damage:.1f}\n")
 
         if health <= 0:
@@ -76,7 +76,7 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, pending_combat, 
             event_audit.boss_hits_on_player_raw += 1
             damage = event_audit.record_player_health(health)
             pending_combat.player_hit_count += 1
-            pending_combat.player_hit_damage += damage
+            pending_combat.player_damage += damage
         print(f"[← UE] 玩家受傷！ Hp={health:.1f}, damage={damage:.1f}\n")
 
         if health <= 0:
@@ -265,9 +265,6 @@ def reset_ue_episode_state(UE_EVENT_LOCK, UE_EVENT_STATE):
 
         UE_EVENT_STATE["att1_deadline"] = None
         UE_EVENT_STATE["att2_deadline"] = None
-
-        UE_EVENT_STATE["boss_hit_count"] = 0
-        UE_EVENT_STATE["player_hit_count"] = 0
 
         UE_EVENT_STATE["episode_start_pulse"] = False
         UE_EVENT_STATE["cantmove_pulse"] = False
