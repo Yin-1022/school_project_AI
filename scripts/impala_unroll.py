@@ -60,7 +60,10 @@ def compute_selected_reward(data, start, valid_length):
 
     return selected_reward, reward_priority
 
-def build_unrolls(data, unroll_length=20, has_behavior_probs=False):
+def build_unrolls(data, unroll_length=20, has_behavior_probs=None):
+    if has_behavior_probs is None:
+        has_behavior_probs = "behavior_probs" in data.files
+
     required_fields = [
         "frames",
         "extra",
@@ -182,6 +185,9 @@ def build_unrolls(data, unroll_length=20, has_behavior_probs=False):
 
             start = start + unroll_length
         elif remaining_steps == unroll_length:
+            if has_behavior_probs:
+                unroll_dict["behavior_probs"] = data["behavior_probs"][start:start + unroll_length]
+
             valid_mask = np.ones(unroll_length,dtype=np.float32)
             bootstrap_valid = 1
             selected_reward, reward_priority = compute_selected_reward(data, start, unroll_length)

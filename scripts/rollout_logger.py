@@ -78,7 +78,7 @@ def flush_rollout_buffer(buffer, actor_id, bootstrap_cathe=None):
         f"{timestamp}.npz"
     )
     temp_out_path = out_dir / (
-        f"rollout_v3_"
+        f"rollout_v4_"
         f"{ROLLOUT_PROFILE}_"
         f"{ACTION_MASK_MODE}_"
         f"{actor_id}_"
