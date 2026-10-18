@@ -6,8 +6,8 @@ from models import (TeacherActorCriticNet,)
 from impala_unroll import build_unrolls
 from vtrace import compute_importance_ratios, prepare_vtrace_weights, compute_vtrace_value_targets, compute_policy_gradient_advantages
 from impala_loss import compute_impala_loss
+from constant import ROLLOUT_DIR
 
-ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
 BATCH_UNROLLS = 1
 
 actor_critic = TeacherActorCriticNet(

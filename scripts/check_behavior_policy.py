@@ -1,8 +1,6 @@
 import numpy as np
 from pathlib import Path
-from constant import ACTION_ID_TO_NAME
-
-ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
+from constant import ACTION_ID_TO_NAME, ROLLOUT_DIR
 
 def main() -> None:
     files = sorted(

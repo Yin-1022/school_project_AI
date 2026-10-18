@@ -1,9 +1,8 @@
 import numpy as np
 from pathlib import Path
 from reward_priority import resolve_priority_reward
-from constant import BOSS_MAX_HP, PLAYER_MAX_HP
+from constant import BOSS_MAX_HP, PLAYER_MAX_HP, ROLLOUT_DIR
 
-ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
 PRIORITY_NAMES = {
     0: "NONE",
     1: "LOW",

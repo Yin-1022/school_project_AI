@@ -6,9 +6,7 @@ import time
 from models import (TeacherActorCriticNet, TeacherPolicyNet)
 from impala_unroll import build_unrolls
 from impala_learner import train_impala_batch, warmstart_actor_critic_from_bc, set_impala_train_mode
-from constant import LEARNER_CHECKPOINT_PATH, ACTOR_CHECKPOINT_PATH
-
-ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
+from constant import LEARNER_CHECKPOINT_PATH, ACTOR_CHECKPOINT_PATH, ROLLOUT_DIR
 
 BC_WEIGHTS_PATH = Path("data/meta/best_teacher_policy.pt")
 UNROLL_LENGTH = 20

@@ -1,8 +1,7 @@
 import numpy as np
 from pathlib import Path
 from reward_priority import resolve_priority_reward
-
-ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
+from constant import ROLLOUT_DIR
 
 def pad_first_dim(array, target_length):
     current_length = len(array)

@@ -2,8 +2,7 @@ import numpy as np
 from pathlib import Path
 
 from impala_unroll import build_unrolls
-
-ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
+from constant import ROLLOUT_DIR
 
 TIME_FIELDS = [
     "frames",

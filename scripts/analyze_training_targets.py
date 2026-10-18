@@ -2,15 +2,13 @@ from pathlib import Path
 import collections
 import numpy as np
 from reward_priority import resolve_priority_reward
-from constant import ACTION_ID_TO_NAME
+from constant import ACTION_ID_TO_NAME, ROLLOUT_DIR
 PRIORITY_NAMES = {
     0: "NONE",
     1: "LOW",
     2: "MED",
     3: "HIGH",
 }
-
-ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
 
 def get_source(proposed_action_id: int,final_action_id: int) -> str:
     if proposed_action_id == final_action_id:
@@ -60,6 +58,7 @@ def analyze_training_targets():
                 ),
                 ue_player_damage=float(data["ue_player_damage"][i]),
                 ue_boss_damage=float(data["ue_boss_damage"][i]),
+                ue_episode_result=int(data["ue_episode_result"][i]),
             )
 
             selected_reward = resolved["reward"]
