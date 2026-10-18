@@ -58,6 +58,29 @@ def main() -> None:
 
         global_step = 0
 
+        learner_payload = {
+            "model_state_dict": actor_critic.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "training_step": global_step,
+        }
+
+        atomic_torch_save(
+            learner_payload,
+            LEARNER_CHECKPOINT_PATH,
+        )
+
+        actor_payload = {
+            "model_state_dict": actor_critic.state_dict(),
+            "training_step": global_step,
+        }
+
+        atomic_torch_save(
+            actor_payload,
+            ACTOR_CHECKPOINT_PATH,
+        )
+
+        print("Initialized IMPALA from BC at step 0")
+
     while True:
         processed_any = False
         files = sorted(
