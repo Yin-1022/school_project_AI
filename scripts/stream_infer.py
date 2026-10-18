@@ -79,6 +79,7 @@ PRESENCE_VIDEO_DIR = Path("data/presence_videos")
 def main(config: ActorConfig):
     rollout_buffer = []
     last_step_cache = None
+    terminal_anchor_cache = None
     video_writer = None
     
     try:
@@ -191,6 +192,7 @@ def main(config: ActorConfig):
                     finalize_episode(
                         rollout_buffer=rollout_buffer,
                         last_step_cache=last_step_cache,
+                        terminal_anchor_cache=terminal_anchor_cache,
                         episode_metrics=episode_metrics,
                         event_audit=event_audit_snapshot,
                         actor_id=config.actor_id,
@@ -200,6 +202,7 @@ def main(config: ActorConfig):
 
                     terminal_handled = True
                     last_step_cache = None
+                    terminal_anchor_cache = None
                     with UE_EVENT_LOCK:
                         UE_EVENT_STATE["episode_done_flag"] = False
                         UE_EVENT_STATE["episode_result"] = 0
@@ -219,6 +222,7 @@ def main(config: ActorConfig):
 
                 print("[stream] disconnected, waiting for UE reconnect")
                 last_step_cache = None
+                terminal_anchor_cache = None
                 continue
 
             with UE_EVENT_LOCK:
@@ -260,6 +264,7 @@ def main(config: ActorConfig):
                 finalize_episode(
                     rollout_buffer=rollout_buffer,
                     last_step_cache=last_step_cache,
+                    terminal_anchor_cache=terminal_anchor_cache,
                     episode_metrics=episode_metrics,
                     event_audit=event_audit_snapshot,
                     actor_id=config.actor_id,
@@ -268,6 +273,7 @@ def main(config: ActorConfig):
                 )
                 terminal_handled = True
                 last_step_cache = None
+                terminal_anchor_cache = None
 
                 with UE_EVENT_LOCK:
                     UE_EVENT_STATE["episode_done_flag"] = False
@@ -301,6 +307,7 @@ def main(config: ActorConfig):
                     pending_combat.reset()
 
                 last_step_cache = None
+                terminal_anchor_cache = None
 
                 reset_ue_episode_state(UE_EVENT_LOCK=UE_EVENT_LOCK, UE_EVENT_STATE=UE_EVENT_STATE)
             elif terminal_handled:
@@ -612,6 +619,7 @@ def main(config: ActorConfig):
                 finalize_episode(
                     rollout_buffer=rollout_buffer,
                     last_step_cache=last_step_cache,
+                    terminal_anchor_cache=terminal_anchor_cache,
                     episode_metrics=episode_metrics,
                     event_audit=event_audit_snapshot,
                     actor_id=config.actor_id,
@@ -620,6 +628,7 @@ def main(config: ActorConfig):
                 )
                 terminal_handled = True
                 last_step_cache = None
+                terminal_anchor_cache = None
 
                 with UE_EVENT_LOCK:
                     UE_EVENT_STATE["episode_done_flag"] = False
@@ -648,6 +657,7 @@ def main(config: ActorConfig):
                         player_damage=last_step_cache["ue_player_damage"],
                     )
                 last_step_cache = None
+                terminal_anchor_cache = None
 
                 # 改由 runtime fallback 執行 Advance
                 send_action(
@@ -669,13 +679,22 @@ def main(config: ActorConfig):
                 continue
 
             if last_step_cache is not None:
-                append_and_record_step(
-                    rollout_buffer=rollout_buffer,
-                    cache=last_step_cache,
-                    episode_metrics=episode_metrics,
-                    done=0,
-                )
+                if terminal_anchor_cache is not None:
+                    append_and_record_step(
+                        rollout_buffer=rollout_buffer,
+                        cache=last_step_cache,
+                        episode_metrics=episode_metrics,
+                        done=0,
+                    )
+                terminal_anchor_cache = terminal_anchor_cache
                 last_step_cache = None
+
+                if len(rollout_buffer) >= ROLLOUT_SAVE_EVERY:
+                    flush_rollout_buffer(
+                        rollout_buffer=rollout_buffer,
+                        actor_id=config.actor_id,
+                        policy_step=loaded_step,
+                    )
 
             # =========================
             # Stuck Recovery Controller
@@ -880,9 +899,6 @@ def main(config: ActorConfig):
                 "actor_policy_step": loaded_step,
             }
 
-            if len(rollout_buffer) >= ROLLOUT_SAVE_EVERY or ue_episode_done:
-                flush_rollout_buffer(rollout_buffer, config.actor_id, last_step_cache)
-
             print(
                 f"[t={frame_id_end:05d}] "
                 f"presence={presence_prob:.2f} "
@@ -1018,6 +1034,7 @@ def finalize_episode(
     *,
     rollout_buffer,
     last_step_cache,
+    terminal_anchor_cache,
     episode_metrics,
     event_audit,
     actor_id,
@@ -1025,6 +1042,14 @@ def finalize_episode(
     policy_step,
 ):
     if last_step_cache is not None:
+        if terminal_anchor_cache is not None:
+            append_and_record_step(
+                rollout_buffer=rollout_buffer,
+                cache=terminal_anchor_cache,
+                episode_metrics=episode_metrics,
+                done=0,
+            )
+
         last_step_cache["ue_episode_done"] = True
         last_step_cache["ue_episode_result"] = episode_result
 
@@ -1034,12 +1059,22 @@ def finalize_episode(
             episode_metrics=episode_metrics,
             done=1,
         )
+    elif terminal_anchor_cache is not None:
+        terminal_anchor_cache["ue_episode_done"] = True
+        terminal_anchor_cache["ue_episode_result"] = episode_result
+
+        append_and_record_step(
+            rollout_buffer=rollout_buffer,
+            cache=terminal_anchor_cache,
+            episode_metrics=episode_metrics,
+            done=1,
+        )
     else:
         print(
             "[episode warning] terminal received "
-            "without trainable last_step_cache; "
-            "terminal reward was not attributed"
+            "without any trainable policy transition"
         )
+        
 
     summary = episode_metrics.finish_episode(
         episode_result=episode_result,
