@@ -100,6 +100,9 @@ class EpisodeMetrics:
     normalized_damage_dealt: float = 0.0
     normalized_damage_taken: float = 0.0
     normalized_damage_net: float = 0.0
+    normalized_attributed_damage_dealt: float = 0.0
+    normalized_attributed_damage_taken: float = 0.0
+    hypothetical_damage_net: float = 0.0
 
     final_player_health: float = 0.0
     final_boss_health: float = 0.0
@@ -177,6 +180,9 @@ class EpisodeMetrics:
         self.normalized_damage_dealt = self.boss_damage_to_player_raw / event_audit["player_max_hp"]
         self.normalized_damage_taken = self.player_damage_to_boss_raw / event_audit["boss_max_hp"]
         self.normalized_damage_net = self.normalized_damage_dealt - self.normalized_damage_taken
+        self.normalized_attributed_damage_dealt = self.attributed_boss_damage_to_player / event_audit["player_max_hp"]
+        self.normalized_attributed_damage_taken = self.attributed_player_damage_to_boss / event_audit["boss_max_hp"]
+        self.hypothetical_damage_net = self.normalized_attributed_damage_dealt - self.normalized_attributed_damage_taken
 
         return self.build_summary()
 
@@ -218,6 +224,9 @@ class EpisodeMetrics:
             "normalized_damage_dealt":self.normalized_damage_dealt,
             "normalized_damage_taken":self.normalized_damage_taken,
             "normalized_damage_net":self.normalized_damage_net,
+            "normalized_attributed_damage_dealt":self.normalized_attributed_damage_dealt,
+            "normalized_attributed_damage_taken":self.normalized_attributed_damage_taken,
+            "hypothetical_damage_net":self.hypothetical_damage_net,
 
             "final_player_health":self.final_player_health,
             "final_boss_health":self.final_boss_health,
@@ -299,5 +308,17 @@ def format_summary(summary: dict) -> str:
         f"    Damage Dealt (Boss -> Player): {summary['normalized_damage_dealt']:.4f} | \n"
         f"    Damage Taken (Player -> Boss): {summary['normalized_damage_taken']:.4f} | \n"
         f"    Net Damage (Dealt - Taken): {summary['normalized_damage_net']:.4f} | \n"
+        "====================================="
+        "\nReward Comparison:\n"
+        f"  Current Hit-based Medium: "
+        f"{summary['medium_reward_total']:+.2f}\n"
+        "\n"
+        f"  Hypothetical Damage-based Medium:\n"
+        f"    Dealt: "
+        f"{summary['normalized_attributed_damage_dealt']:+.4f}\n"
+        f"    Taken: "
+        f"{-summary['normalized_attributed_damage_taken']:+.4f}\n"
+        f"    Net:   "
+        f"{summary['hypothetical_damage_net']:+.4f}\n"
         "====================================="
     )
