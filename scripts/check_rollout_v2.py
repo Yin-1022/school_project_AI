@@ -77,6 +77,9 @@ def main() -> None:
             ue_boss_hit_count=int(
                 data["ue_boss_hit_count"][i]
             ),
+            ue_episode_result=int(
+                data["ue_episode_result"][i]
+            ),
         )
         priority = PRIORITY_NAMES[resolved["priority"]]
         selected_reward = resolved["reward"]
