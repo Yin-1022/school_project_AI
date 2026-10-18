@@ -208,7 +208,7 @@ def main() -> None:
                 f"No rollout files found in {ROLLOUT_DIR}"
             )
     
-    path = files[-1]
+    path = files[-2]
     
     print(f"loading: {path}")
     

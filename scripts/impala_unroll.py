@@ -185,9 +185,6 @@ def build_unrolls(data, unroll_length=20, has_behavior_probs=None):
 
             start = start + unroll_length
         elif remaining_steps == unroll_length:
-            if has_behavior_probs:
-                unroll_dict["behavior_probs"] = data["behavior_probs"][start:start + unroll_length]
-
             valid_mask = np.ones(unroll_length,dtype=np.float32)
             bootstrap_valid = 1
             selected_reward, reward_priority = compute_selected_reward(data, start, unroll_length)
@@ -215,6 +212,8 @@ def build_unrolls(data, unroll_length=20, has_behavior_probs=None):
                 "action_mask": source_action_mask[start:start + unroll_length],
                 "bootstrap_valid": 1
             }
+            if has_behavior_probs:
+                unroll_dict["behavior_probs"] = data["behavior_probs"][start:start + unroll_length]
             start = start + unroll_length
         else:
             break
