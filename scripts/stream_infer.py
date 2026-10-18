@@ -681,7 +681,7 @@ def main(config: ActorConfig):
                 if terminal_anchor_cache is not None:
                     append_and_record_step(
                         rollout_buffer=rollout_buffer,
-                        cache=last_step_cache,
+                        cache=terminal_anchor_cache,
                         episode_metrics=episode_metrics,
                         done=0,
                     )
@@ -690,9 +690,9 @@ def main(config: ActorConfig):
 
                 if len(rollout_buffer) >= ROLLOUT_SAVE_EVERY:
                     flush_rollout_buffer(
-                        rollout_buffer=rollout_buffer,
-                        actor_id=config.actor_id,
-                        terminal_anchor_cache=terminal_anchor_cache,
+                        rollout_buffer,
+                        config.actor_id,
+                        terminal_anchor_cache,
                     )
 
             # =========================
