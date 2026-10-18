@@ -8,7 +8,7 @@ from reward_priority import (
     PRIORITY_HIGH,
     resolve_priority_reward,
 )
-from constant import ACTION_ID_TO_NAME
+from constant import ACTION_ID_TO_NAME, BOSS_MAX_HP, PLAYER_MAX_HP
 
 ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
 PRIORITY_NAMES = {
@@ -39,8 +39,8 @@ def priority_distribution(files_len, total_transitions, files):
                 reward_high=float(data["reward_high"][j]),
                 reward_medium=float(data["reward_medium"][j]),
                 reward_low=float(data["reward_low"][j]),
-                ue_player_hit_count=int(data["ue_player_hit_count"][j]),
-                ue_boss_hit_count=int(data["ue_boss_hit_count"][j]),
+                ue_player_damage=float(data["ue_player_damage"][j]),
+                ue_boss_damage=float(data["ue_boss_damage"][j]),
             )
             priority = resolved["priority"]
             priority_counts[priority] += 1
@@ -312,8 +312,8 @@ def sanity_check(files):
 
         for j in range(total_steps):
             expected_medium = (
-                int(data["ue_player_hit_count"][j])
-                - int(data["ue_boss_hit_count"][j])
+                float(data["ue_player_damage"][j]) / PLAYER_MAX_HP
+                - float(data["ue_boss_damage"][j]) / BOSS_MAX_HP
             )
 
             actual_medium = float(

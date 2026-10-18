@@ -7,6 +7,8 @@ from constant import (
     MAP_VERSION,
     ACTION_SPACE_VERSION,
     ROLLOUT_PROFILE,
+    PLAYER_MAX_HP,
+    BOSS_MAX_HP,
 )
 
 def append_rollout_step(buffer, frames, extra, logits, probs, behavior_probs,
@@ -14,7 +16,8 @@ def append_rollout_step(buffer, frames, extra, logits, probs, behavior_probs,
                         pol_state, frame_id_end, fire_frame,
                         ue_att1_start, ue_att1_end,
                         ue_att2_start, ue_att2_end,
-                        ue_boss_hit_count, ue_player_hit_count, 
+                        ue_boss_hit_count, ue_player_hit_count,
+                        ue_boss_damage, ue_player_damage,
                         ue_episode_done, ue_episode_result,
                         reward_high, reward_medium, reward_low, done, 
                         action_mask=None, actor_policy_step=0):
@@ -42,6 +45,8 @@ def append_rollout_step(buffer, frames, extra, logits, probs, behavior_probs,
         "ue_att2_end": np.int64(1 if ue_att2_end else 0),
         "ue_boss_hit_count": np.int64(ue_boss_hit_count),
         "ue_player_hit_count": np.int64(ue_player_hit_count),
+        "ue_boss_damage": np.float32(ue_boss_damage),
+        "ue_player_damage": np.float32(ue_player_damage),
         "ue_episode_done": np.int64(1 if ue_episode_done else 0),
         "ue_episode_result": np.int64(ue_episode_result),
         "action_mask": np.asarray(action_mask, dtype=np.bool_),
@@ -66,7 +71,7 @@ def flush_rollout_buffer(buffer, actor_id, bootstrap_cathe=None):
 
     timestamp = int(time.time() * 1000)
     out_path = out_dir / (
-        f"rollout_v3_"
+        f"rollout_v4_"
         f"{ROLLOUT_PROFILE}_"
         f"{ACTION_MASK_MODE}_"
         f"{actor_id}_"
@@ -112,6 +117,8 @@ def flush_rollout_buffer(buffer, actor_id, bootstrap_cathe=None):
         "ue_att2_end": np.asarray([x["ue_att2_end"] for x in buffer],dtype=np.int64),
         "ue_boss_hit_count": np.asarray([x["ue_boss_hit_count"] for x in buffer],dtype=np.int64),
         "ue_player_hit_count": np.asarray([x["ue_player_hit_count"] for x in buffer],dtype=np.int64),
+        "ue_boss_damage": np.asarray([x["ue_boss_damage"] for x in buffer],dtype=np.float32),
+        "ue_player_damage": np.asarray([x["ue_player_damage"] for x in buffer],dtype=np.float32),
         "ue_episode_done": np.asarray([x["ue_episode_done"] for x in buffer],dtype=np.int64),
         "ue_episode_result": np.asarray([x["ue_episode_result"] for x in buffer],dtype=np.int64),
 
@@ -152,6 +159,7 @@ def compute_reward_channels(
         info,final_action,
         ue_att1_start, ue_att1_end, ue_att2_start, ue_att2_end,
         ue_boss_hit_count, ue_player_hit_count,
+        ue_boss_damage, ue_player_damage,
         ue_episode_result
     ):
 
@@ -169,8 +177,8 @@ def compute_reward_channels(
         high_reward += 0.0
 
     #Medium level shaping reward
-    medium_reward += ue_player_hit_count * 1.0
-    medium_reward -= ue_boss_hit_count * 1.0
+    medium_reward += ue_player_damage / PLAYER_MAX_HP
+    medium_reward -= ue_boss_damage / BOSS_MAX_HP
 
     #Low level shaping reward
     low_reward = 0.0
@@ -220,6 +228,8 @@ def append_cached_step(rollout_buffer, cache, done=0):
         ue_att2_end=cache["ue_att2_end"],
         ue_boss_hit_count=cache["ue_boss_hit_count"],
         ue_player_hit_count=cache["ue_player_hit_count"],
+        ue_boss_damage=cache["ue_boss_damage"],
+        ue_player_damage=cache["ue_player_damage"],
         ue_episode_result=cache["ue_episode_result"]
     )
 
@@ -243,6 +253,8 @@ def append_cached_step(rollout_buffer, cache, done=0):
         ue_att2_end=cache["ue_att2_end"],
         ue_boss_hit_count=cache["ue_boss_hit_count"],
         ue_player_hit_count=cache["ue_player_hit_count"],
+        ue_boss_damage=cache["ue_boss_damage"],
+        ue_player_damage=cache["ue_player_damage"],
         ue_episode_done=cache["ue_episode_done"],
         ue_episode_result=cache["ue_episode_result"],
 

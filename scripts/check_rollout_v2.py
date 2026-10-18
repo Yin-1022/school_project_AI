@@ -1,6 +1,7 @@
 import numpy as np
 from pathlib import Path
 from reward_priority import resolve_priority_reward
+from constant import BOSS_MAX_HP, PLAYER_MAX_HP
 
 ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
 PRIORITY_NAMES = {
@@ -60,6 +61,8 @@ def main() -> None:
         f"{'a2_e':>5} "
         f"{'p_hit':>5} "
         f"{'b_hit':>5} "
+        f"{'p_dmg':>6} "
+        f"{'b_dmg':>6} "
         f"{'done':>4}"
     )
 
@@ -71,12 +74,8 @@ def main() -> None:
             reward_high=float(data["reward_high"][i]),
             reward_medium=float(data["reward_medium"][i]),
             reward_low=float(data["reward_low"][i]),
-            ue_player_hit_count=int(
-                data["ue_player_hit_count"][i]
-            ),
-            ue_boss_hit_count=int(
-                data["ue_boss_hit_count"][i]
-            ),
+            ue_player_damage=float(data["ue_player_damage"][i]),
+            ue_boss_damage=float(data["ue_boss_damage"][i]),
             ue_episode_result=int(
                 data["ue_episode_result"][i]
             ),
@@ -99,6 +98,8 @@ def main() -> None:
             f"{int(data['ue_att2_end'][i]):>5} "
             f"{int(data['ue_player_hit_count'][i]):>5} "
             f"{int(data['ue_boss_hit_count'][i]):>5} "
+            f"{float(data['ue_player_damage'][i]):>6.2f} "
+            f"{float(data['ue_boss_damage'][i]):>6.2f} "
             f"{int(data['done'][i]):>4}"
             f"{priority:>4} "
             f"{selected_reward:>8.2f}"
@@ -110,8 +111,8 @@ def main() -> None:
 
     for i in range(total_steps):
         expected_medium = (
-            int(data["ue_player_hit_count"][i])
-            - int(data["ue_boss_hit_count"][i])
+            float(data["ue_player_damage"][i]) / PLAYER_MAX_HP
+            - float(data["ue_boss_damage"][i]) / BOSS_MAX_HP
         )
 
         actual_medium = float(

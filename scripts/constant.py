@@ -53,7 +53,7 @@ elif ROLLOUT_PROFILE == "train":
     
 
 if POLICY_MODE in ["bc", "impala"]:
-    ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
+    ROLLOUT_DIR = Path("data/rollouts/rollouts_damage_v1")
 else:
     ROLLOUT_DIR = Path("data/rollouts/rollouts_rule")
 

@@ -58,12 +58,8 @@ def analyze_training_targets():
                 reward_low=float(
                     data["reward_low"][i]
                 ),
-                ue_player_hit_count=int(
-                    data["ue_player_hit_count"][i]
-                ),
-                ue_boss_hit_count=int(
-                    data["ue_boss_hit_count"][i]
-                ),
+                ue_player_damage=float(data["ue_player_damage"][i]),
+                ue_boss_damage=float(data["ue_boss_damage"][i]),
             )
 
             selected_reward = resolved["reward"]

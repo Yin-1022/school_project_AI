@@ -1105,8 +1105,8 @@ def append_and_record_step(
             reward_high=float(rewards["high_reward"]),
             reward_medium=float(rewards["medium_reward"]),
             reward_low=float(rewards["low_reward"]),
-            ue_player_hit_count=cache["ue_player_hit_count"],
-            ue_boss_hit_count=cache["ue_boss_hit_count"],
+            ue_player_damage=float(cache["ue_player_damage"]),
+            ue_boss_damage=float(cache["ue_boss_damage"]),
             ue_episode_result=cache["ue_episode_result"],
         )
     episode_metrics.record_transition(

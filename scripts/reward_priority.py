@@ -7,15 +7,15 @@ def resolve_priority_reward(
     reward_high: float,
     reward_medium: float,
     reward_low: float,
-    ue_player_hit_count: int,
-    ue_boss_hit_count: int,
+    ue_player_damage: float,
+    ue_boss_damage: float,
     ue_episode_result: int,
 ) -> dict:
     high_active = ue_episode_result != 0
 
     medium_active = (
-        ue_player_hit_count > 0
-        or ue_boss_hit_count > 0
+        ue_player_damage > 1e-8
+        or ue_boss_damage > 1e-8
     )
 
     low_active = abs(reward_low) > 1e-8
