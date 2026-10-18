@@ -657,7 +657,6 @@ def main(config: ActorConfig):
                         player_damage=last_step_cache["ue_player_damage"],
                     )
                 last_step_cache = None
-                terminal_anchor_cache = None
 
                 # 改由 runtime fallback 執行 Advance
                 send_action(
@@ -686,14 +685,14 @@ def main(config: ActorConfig):
                         episode_metrics=episode_metrics,
                         done=0,
                     )
-                terminal_anchor_cache = terminal_anchor_cache
+                terminal_anchor_cache = last_step_cache
                 last_step_cache = None
 
                 if len(rollout_buffer) >= ROLLOUT_SAVE_EVERY:
                     flush_rollout_buffer(
                         rollout_buffer=rollout_buffer,
                         actor_id=config.actor_id,
-                        policy_step=loaded_step,
+                        terminal_anchor_cache=terminal_anchor_cache,
                     )
 
             # =========================
