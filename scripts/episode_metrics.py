@@ -35,6 +35,7 @@ class EpisodeEventAudit:
 
     def record_player_health(self, current_health: float):
         current_health = float(current_health)
+        current_health = max(0.0, min(current_health, self.player_max_hp))
 
         damage = max(0.0, self.final_player_health - current_health)
 
@@ -45,6 +46,7 @@ class EpisodeEventAudit:
 
     def record_boss_health(self, current_health: float):
         current_health = float(current_health)
+        current_health = max(0.0, min(current_health, self.boss_max_hp))
 
         damage = max(0.0, self.final_boss_health - current_health)
 
