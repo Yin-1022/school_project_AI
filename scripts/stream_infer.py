@@ -243,6 +243,7 @@ def main(config: ActorConfig):
                 recovery_turn_failed = False
                 recovery_verify_pending = False
                 recovery_verify_action = None
+                recovery_turn_sign = 1
 
                 execution_action = None
                 execution_sent_at = None

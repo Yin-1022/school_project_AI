@@ -10,6 +10,7 @@ from constant import LEARNER_CHECKPOINT_PATH, ACTOR_CHECKPOINT_PATH, ROLLOUT_DIR
 
 BC_WEIGHTS_PATH = Path("data/meta/best_teacher_policy.pt")
 UNROLL_LENGTH = 20
+BATCH_UNROLLS = 2
 
 LEARNING_RATE = 1e-4
 MAX_GRAD_NORM = 40.0
@@ -26,7 +27,6 @@ def atomic_torch_save(payload, path):
     temp_path = path.with_suffix(".tmp")
     torch.save(payload, temp_path)
     temp_path.replace(path)
-
 
 def main() -> None:
     if LEARNER_CHECKPOINT_PATH.exists():
@@ -80,7 +80,9 @@ def main() -> None:
         )
 
         print("Initialized IMPALA from BC at step 0")
-
+        
+    pending_items = []
+    queued_paths = set()
     while True:
         processed_any = False
         files = sorted(
@@ -94,6 +96,9 @@ def main() -> None:
             continue
          
         for path in files:
+            if path in queued_paths:
+                continue
+
             print(f"loading: {path}")
 
             with np.load(path, allow_pickle=False) as data:
@@ -120,6 +125,16 @@ def main() -> None:
                     unroll_length=UNROLL_LENGTH,
                 )
 
+                queued_paths.add(path)
+                for unroll in unrolls:
+                    pending_items.append({
+                        "unroll": unroll,
+                        "path": path,
+                        "actor_id": actor_id,
+                        "min_policy_step": min_policy_step,
+                        "max_policy_step": max_policy_step,
+                    })
+
             if not unrolls:
                 print(f"No valid unrolls found in {path}")
                 skipped_dir = ROLLOUT_DIR / "skipped"
@@ -127,19 +142,26 @@ def main() -> None:
 
                 skipped_path = skipped_dir / path.name
                 path.rename(skipped_path)
+                queued_paths.discard(path)
                 print(f"Moved {path} to {skipped_path}")
                 continue
 
-            for unroll in unrolls:
+            while len(pending_items) >= BATCH_UNROLLS:
+                batch = pending_items[:BATCH_UNROLLS]
+                
                 metrics = train_impala_batch(
                     model=actor_critic,
                     optimizer=optimizer,
-                    batch_unrolls=[unroll],
+                    batch_unrolls=[item["unroll"] for item in batch],
                     max_grad_norm=MAX_GRAD_NORM,
                 )
                 global_step += 1
+                pending_items = pending_items[BATCH_UNROLLS:]
 
-                print(f"Actor: {actor_id}")
+                min_policy_step = min(item["min_policy_step"] for item in batch)
+                max_policy_step = max(item["max_policy_step"] for item in batch)
+
+                print(f"Actor: {sorted(set(item['actor_id'] for item in batch))}")
                 print(f"Step: {global_step}")
                 if max_policy_step == min_policy_step:
                     print(f"Policy steps: {min_policy_step}")
@@ -157,33 +179,44 @@ def main() -> None:
                 print(f"rho_clip_fraction: {metrics['rho_clip_fraction'].item()}")
                 print(f"grad_norm: {metrics['grad_norm'].item()}")
                 print(f"Valid: {metrics['valid_steps'].item()}")
+                print(f"Batch unrolls: {len(batch)}")
                 print(f"Reward sum: {metrics['reward_sum'].item()}")
                 print(f"Reward mean: {metrics['reward_mean'].item()}")
                 print(f"Reward min: {metrics['reward_min'].item()}")
                 print(f"Reward max: {metrics['reward_max'].item()}")
                 print(f"Reward nonzero ratio: {metrics['reward_nonzero_ratio'].item()}")
-            learner_payload = {
-                "model_state_dict": actor_critic.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "training_step": global_step,
-            }
 
-            atomic_torch_save(learner_payload, LEARNER_CHECKPOINT_PATH)
+                learner_payload = {
+                    "model_state_dict": actor_critic.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "training_step": global_step,
+                }
 
-            actor_payload = {
-                "model_state_dict": actor_critic.state_dict(),
-                "training_step": global_step,
-            }
+                atomic_torch_save(learner_payload, LEARNER_CHECKPOINT_PATH)
 
-            atomic_torch_save(actor_payload, ACTOR_CHECKPOINT_PATH)
+                actor_payload = {
+                    "model_state_dict": actor_critic.state_dict(),
+                    "training_step": global_step,
+                }
 
-            print(f"Finished processing: {path}")
-            #move the processed file to another location
-            processed_dir = ROLLOUT_DIR / "processed"
-            processed_dir.mkdir(exist_ok=True)
+                atomic_torch_save(actor_payload, ACTOR_CHECKPOINT_PATH)
 
-            processed_path = processed_dir / path.name
-            path.rename(processed_path)
+                print(f"Finished processing: {path}")
+
+                #move the processed file to another location
+                processed_paths = {item["path"]for item in batch}
+                processed_dir = ROLLOUT_DIR / "processed"
+                processed_dir.mkdir(exist_ok=True)
+
+                for processed_path in processed_paths:
+                    still_pending = any(item["path"] == processed_path for item in pending_items)
+
+                    if still_pending:
+                        continue
+
+                    target = processed_dir / processed_path.name
+                    processed_path.rename(target)
+                    queued_paths.discard(processed_path)
 
         if not processed_any:
             print("No valid rollout files found.")
