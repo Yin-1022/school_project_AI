@@ -201,7 +201,7 @@ def main() -> None:
 
                 atomic_torch_save(actor_payload, ACTOR_CHECKPOINT_PATH)
 
-                print(f"Finished processing: {path}")
+                print("Finished batch: "f"{[str(item['path']) for item in batch]}")
 
                 #move the processed file to another location
                 processed_paths = {item["path"]for item in batch}
@@ -219,7 +219,13 @@ def main() -> None:
                     queued_paths.discard(processed_path)
 
         if not processed_any:
-            print("No valid rollout files found.")
+            if pending_items:
+                print(
+                    f"Waiting for batch: "
+                    f"{len(pending_items)}/{BATCH_UNROLLS} unrolls queued"
+                )
+            else:
+                print("No valid rollout files found.")
             time.sleep(5)
 
 if __name__ == "__main__":
