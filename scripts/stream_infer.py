@@ -81,6 +81,7 @@ def main(config: ActorConfig):
     last_step_cache = None
     terminal_anchor_cache = None
     video_writer = None
+    reconnect_pending = False
     
     try:
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -223,7 +224,57 @@ def main(config: ActorConfig):
                 print("[stream] disconnected, waiting for UE reconnect")
                 last_step_cache = None
                 terminal_anchor_cache = None
+                reconnect_pending = True
                 continue
+
+            if reconnect_pending:
+                print("[stream] UE reconnected, resetting runtime state")
+
+                presence_state = init_presence_state()
+                vis_state = None
+                pol_state = policy_init()
+
+                frame_ring_buffer.clear()
+                pushed_frames = 0
+                recv_frames = 0
+
+                recovery_active = False
+                recovery_stage = 0
+                recovery_turn_failed = False
+                recovery_verify_pending = False
+                recovery_verify_action = None
+
+                execution_action = None
+                execution_sent_at = None
+                execution_started_at = None
+
+                force_decision = False
+
+                hit_turn_pending = False
+                hit_turn_attempts = 0
+
+                terminal_handled = False
+
+                episode_metrics = EpisodeMetrics(
+                    actor_id=config.actor_id
+                )
+
+                with UE_EVENT_LOCK:
+                    event_audit.reset()
+                    pending_combat.reset()
+
+                    UE_EVENT_STATE["episode_done_flag"] = False
+                    UE_EVENT_STATE["episode_result"] = 0
+
+                reset_ue_episode_state(
+                    UE_EVENT_LOCK=UE_EVENT_LOCK,
+                    UE_EVENT_STATE=UE_EVENT_STATE,
+                )
+
+                last_step_cache = None
+                terminal_anchor_cache = None
+
+                reconnect_pending = False
 
             with UE_EVENT_LOCK:
                 episode_started = UE_EVENT_STATE["episode_start_pulse"]
