@@ -1169,6 +1169,12 @@ def finalize_episode(
     episode_result,
     policy_step,
 ):
+    with UE_EVENT_LOCK:
+        if ground_truth_audit.current is not None:
+            ground_truth_audit.abort_action(
+                "episode_terminal"
+            )
+    
     if last_step_cache is not None:
         if terminal_anchor_cache is not None:
             append_and_record_step(

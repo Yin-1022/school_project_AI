@@ -1,6 +1,4 @@
 from dataclasses import dataclass, field
-from collections import Counter
-from time import monotonic
 
 MOVEMENT_ACTIONS = {
     "Advance",
@@ -139,9 +137,11 @@ class GroundTruthAudit:
 
         perception_records = [
             record
-            for record in movement_records
+            for record in self.records
             if (
-                record.pred_visible is not None
+                record.source == "policy"
+                and record.action in MOVEMENT_ACTIONS
+                and record.pred_visible is not None
                 and record.gt_can_see_start is not None
             )
         ]
