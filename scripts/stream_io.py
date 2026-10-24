@@ -181,7 +181,7 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, pending_combat, 
     dp.map("/att2end", on_att2_end)
     dp.map("/enemy_take_damage", on_boss_hit)
     dp.map("/player_health", on_health_changed)
-    dp.map("/enemy_status", on_enemy_status)
+    dp.map("/enemy/status", on_enemy_status)
     dp.map("/enemy_distance", on_enemy_distance)
     dp.map("/game_over", on_episode_done)
     dp.map("/aigame_start", on_aigame_start)

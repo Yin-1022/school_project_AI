@@ -181,18 +181,28 @@ class GroundTruthAudit:
             ]
             close_count = sum(delta > 0 for delta in deltas)
             farther_count = sum(delta < 0 for delta in deltas)
+            unchanged_count = sum(delta == 0 for delta in deltas)
 
             movement_summary[action] = {
                 "samples": len(records),
                 "closer": close_count,
                 "farther": farther_count,
+                "unchanged": unchanged_count,
                 "mean_delta_distance": sum(deltas) / len(deltas) if deltas else 0.0,
             }
 
         search_summary = {}
         for action in SEARCH_ACTIONS:
             records = [r for r in search_records if r.action == action]
-            visible_after_count = sum(bool(r.gt_can_see_end) for r in records)
+            completed_records = [
+                r for r in records
+                if(
+                    r.completed
+                    and r.gt_can_see_end is not None
+                )
+            ]
+            visible_after_count = sum(bool(r.gt_can_see_end) for r in completed_records)
+            
             end_distances = [
                 r.gt_distance_end for r in records 
                 if r.gt_distance_end is not None
@@ -202,6 +212,7 @@ class GroundTruthAudit:
                 "attempts": len(records),
                 "visible_after": visible_after_count,
                 "success_rate": visible_after_count / len(records) if records else 0.0,
+                "aborted": sum(not r.completed for r in records),
                 "mean_end_distance": sum(end_distances) / len(end_distances) if end_distances else 0.0,
             }
 
@@ -267,6 +278,7 @@ def format_gt_summary(summary: dict) -> str:
         f"    Samples: {movement['Advance']['samples']} | "
         f"Closer: {movement['Advance']['closer']} | "
         f"Farther: {movement['Advance']['farther']}\n"
+        f"Unchanged: {movement['Advance']['unchanged']}\n"
         f"    Mean ΔDistance: "
         f"{movement['Advance']['mean_delta_distance']:+.2f}\n"
 
