@@ -198,6 +198,7 @@ def main(config: ActorConfig):
                         terminal_anchor_cache=terminal_anchor_cache,
                         episode_metrics=episode_metrics,
                         event_audit=event_audit_snapshot,
+                        ground_truth_audit=ground_truth_audit,
                         actor_id=config.actor_id,
                         episode_result=episode_result_now,
                         policy_step=loaded_step,
@@ -266,6 +267,7 @@ def main(config: ActorConfig):
                 with UE_EVENT_LOCK:
                     event_audit.reset()
                     pending_combat.reset()
+                    ground_truth_audit.reset()
 
                     UE_EVENT_STATE["episode_done_flag"] = False
                     UE_EVENT_STATE["episode_result"] = 0
@@ -322,6 +324,7 @@ def main(config: ActorConfig):
                     terminal_anchor_cache=terminal_anchor_cache,
                     episode_metrics=episode_metrics,
                     event_audit=event_audit_snapshot,
+                    ground_truth_audit=ground_truth_audit,
                     actor_id=config.actor_id,
                     episode_result=episode_result,
                     policy_step=loaded_step,
@@ -693,6 +696,7 @@ def main(config: ActorConfig):
                     terminal_anchor_cache=terminal_anchor_cache,
                     episode_metrics=episode_metrics,
                     event_audit=event_audit_snapshot,
+                    ground_truth_audit=ground_truth_audit,
                     actor_id=config.actor_id,
                     episode_result=ue_episode_result,
                     policy_step=loaded_step,
@@ -848,12 +852,6 @@ def main(config: ActorConfig):
                     execution_action = "EvadeBack"
                     execution_sent_at = monotonic()
                     execution_started_at = None
-
-                    with UE_EVENT_LOCK:
-                        finished_action = execution_action
-                        ground_truth_audit.finish_action(
-                            action=finished_action,
-                        )
 
                     recovery_stage = 4
 

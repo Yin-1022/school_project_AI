@@ -72,6 +72,8 @@ class GroundTruthAudit:
         elif self.current.action in SEARCH_ACTIONS:
             self.current.gt_can_see_end = can_see
             self.current.gt_distance_end = distance
+        else:
+            self.unmatched_status += 1
 
     def record_enemy_distance(self, distance: float):
         if self.current is None or self.current.action not in MOVEMENT_ACTIONS:
@@ -86,6 +88,11 @@ class GroundTruthAudit:
             return
         if self.current.action != action:
             self.action_mismatch += 1
+            self.current.completed = False
+            self.current.aborted_reason = f"finish mismatch: expected={self.current.action}, got={action}"
+            self.records.append(self.current)
+            self.current = None
+            return
         self.current.completed = True
         self.records.append(self.current)
         self.current = None
