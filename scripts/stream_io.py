@@ -11,7 +11,7 @@ ATT1_DURATION_SEC = 52 / 30.0
 ATT2_DURATION_SEC = 69 / 30.0
 ATTACK_TIMEOUT_MARGIN_SEC = 0.15
 
-def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, pending_combat, event_port=12346):
+def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, pending_combat, ground_truth_audit, event_port=12346):
     def on_att1_start(address, *args):
         with UE_EVENT_LOCK:
             UE_EVENT_STATE["att1_active"] = True
@@ -83,6 +83,37 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, pending_combat, 
             # Player dead = Boss win
             set_episode_result(result=1,source="player_health<=0",)
 
+    def on_enemy_status(address, *args):
+        if len(args) < 2:
+            return
+
+        can_see = bool(args[0])
+        distance = float(args[1])
+
+        with UE_EVENT_LOCK:
+            ground_truth_audit.record_enemy_status(
+                can_see=can_see,
+                distance=distance,
+            )
+
+        print(
+            f"[GT] visible={can_see}, "
+            f"distance={distance:.2f}"
+        )
+
+    def on_enemy_distance(address, *args):
+        if not args:
+            return
+
+        distance = float(args[0])
+
+        with UE_EVENT_LOCK:
+            ground_truth_audit.record_enemy_distance(
+                distance=distance,
+            )
+
+        print(f"[GT] end_distance={distance:.2f}")
+
     def on_episode_done(address, *args):
         print(f"[← UE] 回合結束！args: {args}\n")
 
@@ -150,6 +181,8 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, pending_combat, 
     dp.map("/att2end", on_att2_end)
     dp.map("/enemy_take_damage", on_boss_hit)
     dp.map("/player_health", on_health_changed)
+    dp.map("/enemy_status", on_enemy_status)
+    dp.map("/enemy_distance", on_enemy_distance)
     dp.map("/game_over", on_episode_done)
     dp.map("/aigame_start", on_aigame_start)
     dp.map("/game_win",   game_win)
