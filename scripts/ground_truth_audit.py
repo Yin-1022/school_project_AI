@@ -50,7 +50,9 @@ class GroundTruthAudit:
     def begin_action(self, action: str, source: str, pred_visible: int | None = None, presence_prob: float | None = None, frame_id_end: int | None = None, policy_step: int | None = None):
         if self.current is not None:
             self.action_mismatch += 1
+            self.current.completed = False
             self.current.aborted_reason = "begin_action called while another action is in progress"
+            self.records.append(self.current)
         self.current = GroundTruthActionRecord(
             action=action,
             source=source,
@@ -76,9 +78,12 @@ class GroundTruthAudit:
             self.unmatched_distance += 1
             return
         if self.current.action in MOVEMENT_ACTIONS:
-            self.current.gt_distance_start = distance
+            self.current.gt_distance_end = distance
 
     def finish_action(self, action: str):
+        if self.current is None:
+            self.action_mismatch += 1
+            return
         if self.current.action != action:
             self.action_mismatch += 1
         self.current.completed = True
@@ -86,6 +91,9 @@ class GroundTruthAudit:
         self.current = None
 
     def abort_action(self, reason: str):
+        if self.current is None:
+            self.action_mismatch += 1
+            return
         self.current.completed = False
         self.current.aborted_reason = reason
         self.records.append(self.current)
@@ -161,7 +169,7 @@ class GroundTruthAudit:
         for action in MOVEMENT_ACTIONS:
             records = [r for r in movement_records if r.action == action]
             deltas = [
-                r.gt_distance_end - r.gt_distance_start
+                r.gt_distance_start - r.gt_distance_end
                 for r in records
             ]
             close_count = sum(delta > 0 for delta in deltas)
@@ -169,8 +177,8 @@ class GroundTruthAudit:
 
             movement_summary[action] = {
                 "samples": len(records),
-                "close_count": close_count,
-                "farther_count": farther_count,
+                "closer": close_count,
+                "farther": farther_count,
                 "mean_delta_distance": sum(deltas) / len(deltas) if deltas else 0.0,
             }
 
@@ -184,7 +192,7 @@ class GroundTruthAudit:
             ]
 
             search_summary[action] = {
-                "samples": len(records),
+                "attempts": len(records),
                 "visible_after": visible_after_count,
                 "success_rate": visible_after_count / len(records) if records else 0.0,
                 "mean_end_distance": sum(end_distances) / len(end_distances) if end_distances else 0.0,

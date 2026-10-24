@@ -39,7 +39,7 @@ from constant import (
 )
 from behavior_policy import compute_behavior_probs
 from episode_metrics import EpisodeMetrics, EpisodeEventAudit, PendingCombatEvents, attribute_combat_events, format_summary
-from ground_truth_audit import GroundTruthAudit, GroundTruthActionRecord
+from ground_truth_audit import GroundTruthAudit, format_gt_summary
 
 # RAW_DIR = Path("data/raw_videos")
 # video_path = RAW_DIR / "raw_video_4_t.mp4"
@@ -222,6 +222,7 @@ def main(config: ActorConfig):
                         with UE_EVENT_LOCK:
                             event_audit.reset()
                             pending_combat.reset()
+                            ground_truth_audit.reset()
 
                 print("[stream] disconnected, waiting for UE reconnect")
                 last_step_cache = None
@@ -359,6 +360,7 @@ def main(config: ActorConfig):
                 with UE_EVENT_LOCK:
                     event_audit.reset()
                     pending_combat.reset()
+                    ground_truth_audit.reset()
 
                 last_step_cache = None
                 terminal_anchor_cache = None
@@ -503,7 +505,7 @@ def main(config: ActorConfig):
                         f"[execution watchdog] {execution_action} "
                         "no /actstart -> release"
                     )
-                    
+
                     with UE_EVENT_LOCK:
                         ground_truth_audit.abort_action(
                             "actstart_timeout"
@@ -728,9 +730,20 @@ def main(config: ActorConfig):
                 last_step_cache = None
 
                 # 改由 runtime fallback 執行 Advance
-                ground_truth_audit.abort_action(
-                    "notseeplayer_rejected",
-                )
+                with UE_EVENT_LOCK:
+                    ground_truth_audit.abort_action(
+                        "notseeplayer_rejected"
+                    )
+
+                    ground_truth_audit.begin_action(
+                        action="Advance",
+                        source="runtime_fallback",
+                        pred_visible=int(info["visible"]),
+                        presence_prob=float(presence_prob),
+                        frame_id_end=frame_id_end,
+                        policy_step=loaded_step,
+                    )
+
                 send_action(
                     {"action": "Advance"},
                     action_client=action_client,
@@ -775,7 +788,7 @@ def main(config: ActorConfig):
                 if recovery_stage == 1:
                     with UE_EVENT_LOCK:
                         ground_truth_audit.begin_action(
-                        action=action,
+                        action="SearchTurn",
                         source="recovery",
                         pred_visible=int(info["visible"]),
                         presence_prob=float(presence_prob),
@@ -792,12 +805,6 @@ def main(config: ActorConfig):
                     execution_action = "SearchTurn"
                     execution_sent_at = monotonic()
                     execution_started_at = None
-
-                    with UE_EVENT_LOCK:
-                        finished_action = execution_action
-                        ground_truth_audit.finish_action(
-                            action=finished_action,
-                        )
 
                     recovery_stage = 2
                     print(f"[recovery] try SearchTurn {recovery_angle:+.0f}")
@@ -825,7 +832,7 @@ def main(config: ActorConfig):
                 if recovery_stage == 3:
                     with UE_EVENT_LOCK:
                         ground_truth_audit.begin_action(
-                            action=action,
+                            action="EvadeBack",
                             source="recovery",
                             pred_visible=int(info["visible"]),
                             presence_prob=float(presence_prob),
@@ -874,7 +881,7 @@ def main(config: ActorConfig):
             if hit_turn_pending:
                 with UE_EVENT_LOCK:
                     ground_truth_audit.begin_action(
-                        action=action,
+                        action="SearchTurn",
                         source="hit_reaction",
                         pred_visible=int(info["visible"]),
                         presence_prob=float(presence_prob),
@@ -896,12 +903,6 @@ def main(config: ActorConfig):
 
                 hit_turn_pending = False
                 hit_turn_attempts += 1
-
-                with UE_EVENT_LOCK:
-                    finished_action = execution_action
-                    ground_truth_audit.finish_action(
-                        action=finished_action,
-                    )
 
                 print(
                     f"[hit reaction] SearchTurn +135 "
@@ -1165,6 +1166,7 @@ def finalize_episode(
     terminal_anchor_cache,
     episode_metrics,
     event_audit,
+    ground_truth_audit,
     actor_id,
     episode_result,
     policy_step,
@@ -1211,6 +1213,7 @@ def finalize_episode(
     )
 
     print(format_summary(summary))
+    print(format_gt_summary(ground_truth_audit.build_summary()))
 
     if rollout_buffer:
         flush_rollout_buffer(rollout_buffer, actor_id)
