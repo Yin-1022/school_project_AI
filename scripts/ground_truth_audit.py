@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 
+EPS = 1e-3
 MOVEMENT_ACTIONS = {
     "Advance",
     "StrafeLeft",
@@ -129,9 +130,7 @@ class GroundTruthAudit:
             for record in self.records
             if (
                 record.source == "policy"
-                and record.completed
                 and record.action in SEARCH_ACTIONS
-                and record.gt_can_see_end is not None
             )
         ]
 
@@ -179,9 +178,9 @@ class GroundTruthAudit:
                 r.gt_distance_start - r.gt_distance_end
                 for r in records
             ]
-            close_count = sum(delta > 0 for delta in deltas)
-            farther_count = sum(delta < 0 for delta in deltas)
-            unchanged_count = sum(delta == 0 for delta in deltas)
+            close_count = sum(delta > EPS for delta in deltas)
+            farther_count = sum(delta < -EPS for delta in deltas)
+            unchanged_count = len(deltas) - close_count - farther_count
 
             movement_summary[action] = {
                 "samples": len(records),
@@ -202,7 +201,7 @@ class GroundTruthAudit:
                 )
             ]
             visible_after_count = sum(bool(r.gt_can_see_end) for r in completed_records)
-            
+
             end_distances = [
                 r.gt_distance_end for r in records 
                 if r.gt_distance_end is not None
@@ -210,10 +209,11 @@ class GroundTruthAudit:
 
             search_summary[action] = {
                 "attempts": len(records),
-                "visible_after": visible_after_count,
-                "success_rate": visible_after_count / len(records) if records else 0.0,
+                "completed": len(completed_records),
                 "aborted": sum(not r.completed for r in records),
-                "mean_end_distance": sum(end_distances) / len(end_distances) if end_distances else 0.0,
+                "visible_after": visible_after_count,
+                "success_rate": visible_after_count / len(completed_records) if completed_records else 0.0,
+                "mean_end_distance": sum(r.gt_distance_end for r in completed_records) / len(completed_records) if completed_records else 0.0,
             }
 
         perception_summary = {
@@ -286,6 +286,7 @@ def format_gt_summary(summary: dict) -> str:
         f"    Samples: {movement['StrafeLeft']['samples']} | "
         f"Closer: {movement['StrafeLeft']['closer']} | "
         f"Farther: {movement['StrafeLeft']['farther']}\n"
+        f"Unchanged: {movement['Advance']['unchanged']}\n"
         f"    Mean ΔDistance: "
         f"{movement['StrafeLeft']['mean_delta_distance']:+.2f}\n"
 
@@ -293,6 +294,7 @@ def format_gt_summary(summary: dict) -> str:
         f"    Samples: {movement['StrafeRight']['samples']} | "
         f"Closer: {movement['StrafeRight']['closer']} | "
         f"Farther: {movement['StrafeRight']['farther']}\n"
+        f"Unchanged: {movement['Advance']['unchanged']}\n"
         f"    Mean ΔDistance: "
         f"{movement['StrafeRight']['mean_delta_distance']:+.2f}\n"
 
