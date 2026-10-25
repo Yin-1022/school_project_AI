@@ -10,7 +10,8 @@ from constant import LEARNER_CHECKPOINT_PATH, ACTOR_CHECKPOINT_PATH, ROLLOUT_DIR
 
 BC_WEIGHTS_PATH = Path("data/meta/best_teacher_policy.pt")
 UNROLL_LENGTH = 20
-BATCH_UNROLLS = 2
+MIN_BATCH_UNROLLS = 2
+MIN_BATCH_VALID_STEPS = 32
 
 LEARNING_RATE = 1e-4
 MAX_GRAD_NORM = 40.0
@@ -146,8 +147,11 @@ def main() -> None:
                 print(f"Moved {path} to {skipped_path}")
                 continue
 
-            while len(pending_items) >= BATCH_UNROLLS:
-                batch = pending_items[:BATCH_UNROLLS]
+            while True:
+                batch = build_ready_batch(pending_items)
+
+                if batch is None:
+                    break
                 
                 metrics = train_impala_batch(
                     model=actor_critic,
@@ -156,7 +160,8 @@ def main() -> None:
                     max_grad_norm=MAX_GRAD_NORM,
                 )
                 global_step += 1
-                pending_items = pending_items[BATCH_UNROLLS:]
+                batch_size = len(batch)
+                pending_items = pending_items[batch_size:]
 
                 min_policy_step = min(item["min_policy_step"] for item in batch)
                 max_policy_step = max(item["max_policy_step"] for item in batch)
@@ -220,13 +225,41 @@ def main() -> None:
 
         if not processed_any:
             if pending_items:
+                pending_valid_steps = sum(
+                    get_valid_steps(item) for item in pending_items
+                )
+
                 print(
                     f"Waiting for batch: "
-                    f"{len(pending_items)}/{BATCH_UNROLLS} unrolls queued"
+                    f"{len(pending_items)} unrolls, "
+                    f"{pending_valid_steps}/{MIN_BATCH_VALID_STEPS} valid steps "
+                    f"(min unrolls={MIN_BATCH_UNROLLS})"
                 )
             else:
                 print("No valid rollout files found.")
             time.sleep(5)
+
+def get_valid_steps(item):
+    return int(item["unroll"]["valid_mask"].sum())
+
+def build_ready_batch(pending_item):
+    if len(pending_item) < MIN_BATCH_UNROLLS:
+        return None
+
+    batch = []
+    valid_steps = 0
+
+    for item in pending_item:
+        batch.append(item)
+        valid_steps += get_valid_steps(item)
+
+        if (
+            len(batch) >= MIN_BATCH_UNROLLS
+            and valid_steps >= MIN_BATCH_VALID_STEPS
+        ):
+            return batch
+
+    return None
 
 if __name__ == "__main__":
     main()
