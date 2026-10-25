@@ -208,7 +208,6 @@ class GroundTruthAudit:
                 r for r in records
                 if (
                     r.completed
-                    and r.gt_distance_start is not None
                     and r.gt_distance_end is not None
                 )
             ]
