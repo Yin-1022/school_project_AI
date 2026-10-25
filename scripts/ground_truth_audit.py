@@ -118,10 +118,7 @@ class GroundTruthAudit:
             for record in self.records
             if (
                 record.source == "policy"
-                and record.completed
                 and record.action in MOVEMENT_ACTIONS
-                and record.gt_distance_start is not None
-                and record.gt_distance_end is not None
             )
         ]
 
@@ -174,9 +171,17 @@ class GroundTruthAudit:
         movement_summary = {}
         for action in MOVEMENT_ACTIONS:
             records = [r for r in movement_records if r.action == action]
+            completed_records = [
+                r for r in records
+                if(
+                    r.completed
+                    and r.gt_distance_start is not None
+                    and r.gt_distance_end is not None
+                )
+            ]
             deltas = [
                 r.gt_distance_start - r.gt_distance_end
-                for r in records
+                for r in completed_records
             ]
             close_count = sum(delta > EPS for delta in deltas)
             farther_count = sum(delta < -EPS for delta in deltas)
@@ -184,6 +189,8 @@ class GroundTruthAudit:
 
             movement_summary[action] = {
                 "samples": len(records),
+                "completed": len(completed_records),
+                "aborted": sum(not r.completed for r in records),   
                 "closer": close_count,
                 "farther": farther_count,
                 "unchanged": unchanged_count,
@@ -213,6 +220,7 @@ class GroundTruthAudit:
                 "aborted": sum(not r.completed for r in records),
                 "visible_after": visible_after_count,
                 "success_rate": visible_after_count / len(completed_records) if completed_records else 0.0,
+                "mean_end_distance": sum(end_distances) / len(end_distances) if end_distances else 0.0,
             }
 
         perception_summary = {
@@ -275,24 +283,30 @@ def format_gt_summary(summary: dict) -> str:
         "\nMovement:\n"
         f"  Advance:\n"
         f"    Samples: {movement['Advance']['samples']} | "
+        f"Completed: {movement['Advance']['completed']} | "
+        f"Aborted: {movement['Advance']['aborted']}\n"
         f"Closer: {movement['Advance']['closer']} | "
-        f"Farther: {movement['Advance']['farther']}\n"
+        f"Farther: {movement['Advance']['farther']}"
         f"Unchanged: {movement['Advance']['unchanged']}\n"
         f"    Mean ΔDistance: "
         f"{movement['Advance']['mean_delta_distance']:+.2f}\n"
 
         f"  StrafeLeft:\n"
         f"    Samples: {movement['StrafeLeft']['samples']} | "
+        f"Completed: {movement['StrafeLeft']['completed']} | "
+        f"Aborted: {movement['StrafeLeft']['aborted']}\n"
         f"Closer: {movement['StrafeLeft']['closer']} | "
-        f"Farther: {movement['StrafeLeft']['farther']}\n"
+        f"Farther: {movement['StrafeLeft']['farther']}"
         f"Unchanged: {movement['StrafeLeft']['unchanged']}\n"
         f"    Mean ΔDistance: "
         f"{movement['StrafeLeft']['mean_delta_distance']:+.2f}\n"
 
         f"  StrafeRight:\n"
         f"    Samples: {movement['StrafeRight']['samples']} | "
+        f"Completed: {movement['StrafeRight']['completed']} | "
+        f"Aborted: {movement['StrafeRight']['aborted']}\n"
         f"Closer: {movement['StrafeRight']['closer']} | "
-        f"Farther: {movement['StrafeRight']['farther']}\n"
+        f"Farther: {movement['StrafeRight']['farther']}"
         f"Unchanged: {movement['StrafeRight']['unchanged']}\n"
         f"    Mean ΔDistance: "
         f"{movement['StrafeRight']['mean_delta_distance']:+.2f}\n"
