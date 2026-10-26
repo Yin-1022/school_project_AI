@@ -1,0 +1,95 @@
+from runtime.execution import ExecutionController
+from runtime.types import RuntimeAction, ActionSource
+
+
+def test_execution_lifecycle():
+    controller = ExecutionController()
+
+    action = RuntimeAction(
+        name="Advance",
+        value=0.0,
+        source=ActionSource.POLICY,
+    )
+
+    # 1. Initial
+    assert controller.can_send()
+    assert controller.state.current_action is None
+
+    # 2. Action sent
+    controller.on_action_sent(action)
+
+    assert not controller.can_send()
+    assert controller.state.busy
+    assert controller.state.waiting_start
+    assert controller.state.current_action == action
+    assert controller.state.sent_at is not None
+
+    # 3. Action started
+    controller.on_action_started()
+
+    assert controller.state.busy
+    assert not controller.state.waiting_start
+    assert controller.state.started_at is not None
+
+    # 4. Action ended
+    completed = controller.on_action_end()
+
+    assert completed == action
+    assert controller.can_send()
+    assert controller.state.current_action is None
+    assert controller.state.sent_at is None
+    assert controller.state.started_at is None
+
+
+def test_invalid_events():
+    controller = ExecutionController()
+
+    # Idle 時收到 End，應忽略
+    assert controller.on_action_end() is None
+
+    # Idle 時收到 Start，應忽略
+    controller.on_action_started()
+    assert controller.can_send()
+
+    action = RuntimeAction(
+        "SearchTurn",
+        90.0,
+        ActionSource.RUNTIME_RECOVERY,
+    )
+
+    controller.on_action_sent(action)
+    controller.on_action_started()
+
+    first_started_at = controller.state.started_at
+
+    # 重複 Start 不應覆蓋時間
+    controller.on_action_started()
+    assert controller.state.started_at == first_started_at
+
+    # Busy 時不能再送 Action
+    try:
+        controller.on_action_sent(action)
+        assert False, "Expected RuntimeError"
+    except RuntimeError:
+        pass
+
+    # 不應覆蓋正在執行的 Action
+    assert controller.state.current_action == action
+
+
+def test_reset():
+    controller = ExecutionController()
+
+    action = RuntimeAction(
+        "EvadeBack",
+        0.0,
+        ActionSource.RUNTIME_RECOVERY,
+    )
+
+    controller.on_action_sent(action)
+    controller.on_action_started()
+    controller.reset()
+
+    assert controller.can_send()
+    assert controller.state.current_action is None
+    assert controller.state.started_at is None
