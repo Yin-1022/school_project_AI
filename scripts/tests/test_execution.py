@@ -93,3 +93,59 @@ def test_reset():
     assert controller.can_send()
     assert controller.state.current_action is None
     assert controller.state.started_at is None
+
+
+def test_action_start_timeout():
+    controller = ExecutionController(
+        start_timeout=1.0,
+        end_timeout=5.0,
+    )
+
+    action = RuntimeAction(
+        "Advance", 0.0, ActionSource.POLICY
+    )
+
+    controller.on_action_sent(action)
+    sent_at = controller.state.sent_at
+    assert sent_at is not None
+
+    # 尚未超時
+    assert controller.check_timeout(now=sent_at + 0.5) is None
+    assert not controller.can_send()
+
+    # 超過 Start Timeout
+    assert controller.check_timeout(now=sent_at + 1.0) == "actstart_timeout"
+    assert controller.can_send()
+    assert controller.state.current_action is None
+
+
+def test_action_end_timeout():
+    controller = ExecutionController(
+        start_timeout=1.0,
+        end_timeout=5.0,
+    )
+
+    action = RuntimeAction(
+        "SearchTurn", 90.0, ActionSource.RUNTIME_RECOVERY
+    )
+
+    controller.on_action_sent(action)
+    controller.on_action_started()
+
+    started_at = controller.state.started_at
+    assert started_at is not None
+
+    # 尚未超時
+    assert controller.check_timeout(now=started_at + 4.0) is None
+    assert not controller.can_send()
+
+    # 超過 End Timeout
+    assert controller.check_timeout(now=started_at + 5.0) == "actend_timeout"
+    assert controller.can_send()
+
+
+def test_no_timeout_when_idle():
+    controller = ExecutionController()
+
+    assert controller.check_timeout(now=100.0) is None
+    assert controller.can_send()

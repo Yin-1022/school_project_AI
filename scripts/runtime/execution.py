@@ -4,8 +4,10 @@ from .types import ExecutionState, RuntimeAction
 
 
 class ExecutionController:
-    def __init__(self):
+    def __init__(self, start_timeout: float = 1.0, end_timeout: float = 5.0) -> None:
         self.state = ExecutionState()
+        self.start_timeout = start_timeout
+        self.end_timeout = end_timeout
 
     def can_send(self) -> bool:
         return not self.state.busy
@@ -34,5 +36,25 @@ class ExecutionController:
         self.reset()
         return completed_action
 
+    def check_timeout(self, now: float | None = None) -> str |None:
+        if now is None:
+            now = monotonic()
+
+        if not self.state.busy:
+            return None
+        else:
+            if self.state.waiting_start:
+                if now - self.state.sent_at >= self.start_timeout:
+                    self.reset()
+                    return "actstart_timeout"
+                else:
+                    return None
+            else:
+                if now - self.state.started_at >= self.end_timeout:
+                    self.reset()
+                    return "actend_timeout"
+                else:
+                    return None
+                
     def reset(self) -> None:
         self.state = ExecutionState()
