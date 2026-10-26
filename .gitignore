@@ -7,6 +7,8 @@ data/presence_errors/
 data/presence_videos/
 data/presence_samples/
 data/rollouts/
+data/meta/archive/
+data/teacher_samples/
 scripts/__pycache__/
 scripts/tempCodeRunnerFile.py
 sendandreceiveosc.py
