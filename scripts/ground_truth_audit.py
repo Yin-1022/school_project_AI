@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from collections import Counter
 
 EPS = 1e-3
 MOVEMENT_ACTIONS = {
@@ -189,10 +190,20 @@ class GroundTruthAudit:
             farther_count = sum(delta < -EPS for delta in deltas)
             unchanged_count = len(deltas) - close_count - farther_count
 
+            abort_reasons = Counter(
+                r.aborted_reason
+                for r in records
+                if (
+                    not r.completed
+                    and r.aborted_reason is not None
+                )
+            )
+
             movement_summary[action] = {
                 "attempts": len(records),
                 "completed": completed_count,
-                "aborted": len(records) - completed_count,   
+                "aborted": len(records) - completed_count,  
+                "abort_reasons": dict(abort_reasons),
                 "closer": close_count,
                 "farther": farther_count,
                 "unchanged": unchanged_count,
@@ -208,6 +219,7 @@ class GroundTruthAudit:
                 r for r in records
                 if (
                     r.completed
+                    and r.gt_can_see_end is not None
                     and r.gt_distance_end is not None
                 )
             ]
@@ -290,6 +302,8 @@ def format_gt_summary(summary: dict) -> str:
         f"    Attempts: {movement['Advance']['attempts']} | "
         f"Completed: {movement['Advance']['completed']} | "
         f"Aborted: {movement['Advance']['aborted']}\n"
+        f"    Abort Reasons: "
+        f"{format_abort_reasons(movement['Advance']['abort_reasons'])}\n"
         f"    Closer: {movement['Advance']['closer']} | "
         f"Farther: {movement['Advance']['farther']} | "
         f"Unchanged: {movement['Advance']['unchanged']}\n"
@@ -300,6 +314,8 @@ def format_gt_summary(summary: dict) -> str:
         f"    Attempts: {movement['StrafeLeft']['attempts']} | "
         f"Completed: {movement['StrafeLeft']['completed']} | "
         f"Aborted: {movement['StrafeLeft']['aborted']}\n"
+        f"    Abort Reasons: "
+        f"{format_abort_reasons(movement['StrafeLeft']['abort_reasons'])}\n"
         f"    Closer: {movement['StrafeLeft']['closer']} | "
         f"Farther: {movement['StrafeLeft']['farther']} | "
         f"Unchanged: {movement['StrafeLeft']['unchanged']}\n"
@@ -310,6 +326,8 @@ def format_gt_summary(summary: dict) -> str:
         f"    Attempts: {movement['StrafeRight']['attempts']} | "
         f"Completed: {movement['StrafeRight']['completed']} | "
         f"Aborted: {movement['StrafeRight']['aborted']}\n"
+        f"    Abort Reasons: "
+        f"{format_abort_reasons(movement['StrafeRight']['abort_reasons'])}\n"
         f"    Closer: {movement['StrafeRight']['closer']} | "
         f"Farther: {movement['StrafeRight']['farther']} | "
         f"Unchanged: {movement['StrafeRight']['unchanged']}\n"
@@ -366,4 +384,13 @@ def format_gt_summary(summary: dict) -> str:
         f"{diagnostics['action_mismatch']}\n"
 
         "========================================"
+    )
+
+def format_abort_reasons(abort_reasons: dict) -> str:
+    if not abort_reasons:
+        return "None"
+
+    return ", ".join(
+        f"{reason}={count}"
+        for reason, count in abort_reasons.items()
     )
