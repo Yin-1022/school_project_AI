@@ -1,3 +1,5 @@
+import time
+
 from pythonosc import dispatcher, osc_server
 from pythonosc.udp_client import SimpleUDPClient
 import threading
@@ -5,49 +7,172 @@ import socket
 import numpy as np
 import cv2
 
-def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=12346):
+ATT1_DURATION_SEC = 52 / 30.0
+ATT2_DURATION_SEC = 69 / 30.0
+ATTACK_TIMEOUT_MARGIN_SEC = 0.15
+
+def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, pending_combat, ground_truth_audit, event_port=12346):
     def on_att1_start(address, *args):
         with UE_EVENT_LOCK:
             UE_EVENT_STATE["att1_active"] = True
             UE_EVENT_STATE["att1_start_pulse"] = True
+            UE_EVENT_STATE["att1_deadline"] = (
+                time.monotonic()
+                + ATT1_DURATION_SEC
+                + ATTACK_TIMEOUT_MARGIN_SEC
+            )
         print(f"[← UE] Boss普攻開始！args: {args}\n")
 
     def on_att1_end(address, *args):
         with UE_EVENT_LOCK:
             UE_EVENT_STATE["att1_active"] = False
             UE_EVENT_STATE["att1_end_pulse"] = True
+            UE_EVENT_STATE["att1_deadline"] = None
         print(f"[← UE] Boss普攻結束！args: {args}\n")
 
     def on_att2_start(address, *args):
         with UE_EVENT_LOCK:
             UE_EVENT_STATE["att2_active"] = True
             UE_EVENT_STATE["att2_start_pulse"] = True
+            UE_EVENT_STATE["att2_deadline"] = (
+                time.monotonic()
+                + ATT2_DURATION_SEC
+                + ATTACK_TIMEOUT_MARGIN_SEC
+            )
         print(f"[← UE] Boss技能1開始！args: {args}\n")
 
     def on_att2_end(address, *args):
         with UE_EVENT_LOCK:
             UE_EVENT_STATE["att2_active"] = False
             UE_EVENT_STATE["att2_end_pulse"] = True
+            UE_EVENT_STATE["att2_deadline"] = None
         print(f"[← UE] Boss技能1結束！args: {args}\n")
 
     def on_fallback(address, *args):
         print(f"[← UE] 未知訊息 {address}，args: {args}\n")
 
     def on_boss_hit(address, *args):
+        if not args:
+            return
+        
+        health = float(args[0])
         with UE_EVENT_LOCK:
-            UE_EVENT_STATE["boss_hit_pulse"] = True
-        print(f"[← UE] Boss 被擊中！args: {args}\n")
+            event_audit.player_hits_on_boss_raw += 1
+            damage = event_audit.record_boss_health(health)
+            pending_combat.boss_hit_count += 1
+            pending_combat.boss_damage += damage
+        print(f"[← UE] Boss受傷！ Hp={health:.1f}, damage={damage:.1f}\n")
+
+        if health <= 0:
+            # Boss dead = Player win
+            set_episode_result(result=-1,source="boss_health<=0",)
 
     def on_health_changed(address, *args):
+        if not args:
+            return
+        
         health = args[0]
         with UE_EVENT_LOCK:
-            UE_EVENT_STATE["player_hit_pulse"] = True
-        print(f"[← UE] 玩家血量：{health}")
+            event_audit.boss_hits_on_player_raw += 1
+            damage = event_audit.record_player_health(health)
+            pending_combat.player_hit_count += 1
+            pending_combat.player_damage += damage
+        print(f"[← UE] 玩家受傷！ Hp={health:.1f}, damage={damage:.1f}\n")
+
+        if health <= 0:
+            # Player dead = Boss win
+            set_episode_result(result=1,source="player_health<=0",)
+
+    def on_enemy_status(address, *args):
+        if len(args) < 2:
+            return
+
+        can_see = bool(args[0])
+        distance = float(args[1])
+
+        with UE_EVENT_LOCK:
+            ground_truth_audit.record_enemy_status(
+                can_see=can_see,
+                distance=distance,
+            )
+
+        print(
+            f"[GT] visible={can_see}, "
+            f"distance={distance:.2f}"
+        )
+
+    def on_enemy_distance(address, *args):
+        if not args:
+            return
+
+        distance = float(args[0])
+
+        with UE_EVENT_LOCK:
+            ground_truth_audit.record_enemy_distance(
+                distance=distance,
+            )
+
+        print(f"[GT] end_distance={distance:.2f}")
 
     def on_episode_done(address, *args):
-        with UE_EVENT_LOCK:
-            UE_EVENT_STATE["episode_done_flag"] = True
         print(f"[← UE] 回合結束！args: {args}\n")
+
+    def on_aigame_start(address, *args):
+        with UE_EVENT_LOCK:
+            UE_EVENT_STATE["episode_start_pulse"] = True
+        print(f"[← UE] 回合開始！args: {args}\n")
+
+    def game_win(address, *args):
+        # Player win = Boss loss
+        set_episode_result(
+            result=-1,
+            source="/game_win",
+        )
+
+    def game_lost(address, *args):
+        # Player lost = Boss win
+        set_episode_result(
+            result=1,
+            source="/game_lost",
+        )
+
+    def set_episode_result(result: int, source: str):
+        with UE_EVENT_LOCK:
+            # 避免 health=0、game_lost、disconnect 前後重複 terminal
+            if UE_EVENT_STATE["episode_done_flag"]:
+                return
+
+            UE_EVENT_STATE["episode_done_flag"] = True
+            UE_EVENT_STATE["episode_result"] = result
+
+        result_name = "Boss win" if result > 0 else "Boss loss"
+        print(f"[UE terminal] {result_name} detected from {source}")
+
+    def on_cantmove(address, *args):
+        with UE_EVENT_LOCK:
+            UE_EVENT_STATE["cantmove_pulse"] = True
+        print(f"[← UE] Boss cant move! args: {args}")
+
+    def on_act_start(address, *args):
+        with UE_EVENT_LOCK:
+            UE_EVENT_STATE["act_active"] = True
+            UE_EVENT_STATE["act_start_pulse"] = True
+
+        print(f"[← UE] Action start! args: {args}")
+
+
+    def on_act_end(address, *args):
+        with UE_EVENT_LOCK:
+            UE_EVENT_STATE["act_active"] = False
+            UE_EVENT_STATE["act_end_pulse"] = True
+
+        print(f"[← UE] Action end! args: {args}")
+
+    def on_notseeplayer(address, *args):
+        with UE_EVENT_LOCK:
+            UE_EVENT_STATE["notseeplayer_pulse"] = True
+
+        print(f"[← UE] Strafe rejected: player not seen! args: {args}")
 
     dp = dispatcher.Dispatcher()
     dp.map("/att1start", on_att1_start)
@@ -56,7 +181,16 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=12346):
     dp.map("/att2end", on_att2_end)
     dp.map("/enemy_take_damage", on_boss_hit)
     dp.map("/player_health", on_health_changed)
+    dp.map("/enemy/status", on_enemy_status)
+    dp.map("/enemy_distance", on_enemy_distance)
     dp.map("/game_over", on_episode_done)
+    dp.map("/aigame_start", on_aigame_start)
+    dp.map("/game_win",   game_win)
+    dp.map("/game_lost",   game_lost)
+    dp.map("/actstart", on_act_start)
+    dp.map("/actend", on_act_end)
+    dp.map("/cantmove", on_cantmove)
+    dp.map("/notseeplayer", on_notseeplayer)
     dp.set_default_handler(on_fallback)
 
     server = osc_server.ThreadingOSCUDPServer(("0.0.0.0", event_port), dp)
@@ -81,6 +215,8 @@ def send_action(msg, action_client=None):
     elif action_name == "SearchTurnLeft":
         action_name = "SearchTurn"
         angle = -50.0
+    elif action_name == "SearchTurn" and "angle" in msg:
+        angle = float(msg["angle"])
     elif action_name == "PatrolStepRight":
         action_name = "PatrolStep"
         angle = 50.0
@@ -89,18 +225,18 @@ def send_action(msg, action_client=None):
         angle = -50.0
 
     args = [
-        action_name,                            # string
-        float(angle),                           # float
-        int(msg["ts_frame"]),                   # int
-        int(msg["fire_frame"]),                 # int
-        int(msg["hold_until"]),                 # int
-        float(msg["meta"]["conf"]),             # float
-        str(msg["meta"]["phase"]),              # string
-        str(msg["meta"]["search_hint"] or ""),  # string
-        int(msg["seq"]),                        # int
+        action_name,                              # string
+        float(angle),                             # float
+        # int(msg["ts_frame"]),                   # int
+        # int(msg["fire_frame"]),                 # int
+        # int(msg["hold_until"]),                 # int
+        # float(msg["meta"]["conf"]),             # float
+        # str(msg["meta"]["phase"]),              # string
+        # str(msg["meta"]["search_hint"] or ""),  # string
+        # int(msg["seq"]),                        # int
     ]
 
-    action_client.send_message("/boss/action", args)
+    action_client.send_message("/enemy/action", args)
 
 def tcp_frame_stream(host='127.0.0.1', frame_port=9999, img_w=192, img_h=192, img_c=3, debug_show=False):
     frame_size = img_w * img_h * img_c
@@ -149,3 +285,23 @@ def tcp_frame_stream(host='127.0.0.1', frame_port=9999, img_w=192, img_h=192, im
                 conn.close()
             if debug_show:
                 cv2.destroyAllWindows()
+
+def reset_ue_episode_state(UE_EVENT_LOCK, UE_EVENT_STATE):
+    with UE_EVENT_LOCK:
+        UE_EVENT_STATE["att1_active"] = False
+        UE_EVENT_STATE["att1_start_pulse"] = False
+        UE_EVENT_STATE["att1_end_pulse"] = False
+
+        UE_EVENT_STATE["att2_active"] = False
+        UE_EVENT_STATE["att2_start_pulse"] = False
+        UE_EVENT_STATE["att2_end_pulse"] = False
+
+        UE_EVENT_STATE["att1_deadline"] = None
+        UE_EVENT_STATE["att2_deadline"] = None
+
+        UE_EVENT_STATE["episode_start_pulse"] = False
+        UE_EVENT_STATE["cantmove_pulse"] = False
+        UE_EVENT_STATE["act_active"] = False
+        UE_EVENT_STATE["act_start_pulse"] = False
+        UE_EVENT_STATE["act_end_pulse"] = False
+        UE_EVENT_STATE["notseeplayer_pulse"] = False

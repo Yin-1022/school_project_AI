@@ -4,8 +4,7 @@ from pathlib import Path
 
 from impala_unroll import build_unrolls
 from models import TeacherActorCriticNet
-
-ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
+from constant import ROLLOUT_DIR
 
 model = TeacherActorCriticNet(
     in_ch=3,

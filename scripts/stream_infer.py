@@ -8,7 +8,7 @@ from actor_config import ActorConfig, parse_actor_config
 from presence_data import save_presence_sample
 from visibility import update as vis_update
 from policy import init_state as policy_init, step as rule_policy_step
-from stream_io import send_action, receive_from_ue, tcp_frame_stream, get_osc_client
+from stream_io import reset_ue_episode_state, send_action, receive_from_ue, tcp_frame_stream, get_osc_client
 from observation_builder import build_frame_tensor, build_extra_tensor, ACTION_NAME_TO_ID
 from policy_inference import (
     load_actor_critic_model, load_model, 
@@ -22,19 +22,24 @@ from presence_inference import (
     infer_player_presence,
 )
 from action_postprocess import apply_action_with_state
-from rollout_logger import append_cached_step, flush_rollout_buffer, append_last_step
+from rollout_logger import append_cached_step, flush_rollout_buffer
+from reward_priority import resolve_priority_reward
 import threading
 import time
+from time import monotonic
 from constant import (
     ACTION_ID_TO_NAME,
     ROLLOUT_SAVE_EVERY,
     POLICY_MODE,
     ACTION_MASK_MODE,
-    BLOCKING_ACTIONS,
+    PLAYER_MAX_HP,
+    BOSS_MAX_HP,
     LEARNER_CHECKPOINT_PATH,
     ACTOR_CHECKPOINT_PATH
 )
 from behavior_policy import compute_behavior_probs
+from episode_metrics import EpisodeMetrics, EpisodeEventAudit, PendingCombatEvents, attribute_combat_events, format_summary
+from ground_truth_audit import GroundTruthAudit, format_gt_summary
 
 # RAW_DIR = Path("data/raw_videos")
 # video_path = RAW_DIR / "raw_video_4_t.mp4"
@@ -55,9 +60,18 @@ UE_EVENT_STATE = {
     "att2_start_pulse": False,
     "att2_end_pulse": False,
 
-    "boss_hit_pulse": False,
-    "player_hit_pulse": False,
+    "att1_deadline": None,
+    "att2_deadline": None,
+
     "episode_done_flag": False,
+    "episode_start_pulse": False,
+    "episode_result": 0,
+
+    "act_active": False,
+    "act_start_pulse": False,
+    "act_end_pulse": False,
+    "cantmove_pulse": False,
+    "notseeplayer_pulse": False,
 }
 UE_EVENT_LOCK = threading.Lock()
 PRESENCE_RECORD_MODE = True
@@ -66,7 +80,9 @@ PRESENCE_VIDEO_DIR = Path("data/presence_videos")
 def main(config: ActorConfig):
     rollout_buffer = []
     last_step_cache = None
+    terminal_anchor_cache = None
     video_writer = None
+    reconnect_pending = False
     
     try:
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -85,8 +101,12 @@ def main(config: ActorConfig):
         action_client = get_osc_client(
             host=config.ue_host,
             action_port=config.action_port,
-        )   
-        receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_port=config.event_port)
+        )
+        episode_metrics = EpisodeMetrics(actor_id=config.actor_id)
+        event_audit = EpisodeEventAudit(player_max_hp=PLAYER_MAX_HP, boss_max_hp=BOSS_MAX_HP)
+        pending_combat = PendingCombatEvents()
+        ground_truth_audit = GroundTruthAudit()
+        receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, pending_combat, ground_truth_audit, event_port=config.event_port)
         action_cls_model = load_action_cls_model(str(ACTION_CLS_WEIGHTS_PATH), device=device)
 
         presence_model = load_presence_model(
@@ -103,8 +123,21 @@ def main(config: ActorConfig):
         recv_frames = 0
         sample_every = 1
         decision_count = 0
-        action_lock_until_frame = -1
-        locked_action = None
+        recovery_active = False
+        recovery_stage = 0
+        recovery_turn_sign = 1
+        recovery_turn_failed = False
+        recovery_verify_pending = False
+        recovery_verify_action = None
+        execution_action = None
+        execution_started_at = None
+        execution_sent_at = None
+        hit_turn_pending = False
+        hit_turn_attempts = 0
+        terminal_handled = False
+        force_decision = False
+        ACTION_START_TIMEOUT_SEC = 1.0
+        ACTION_END_TIMEOUT_SEC = 5.0
         global SEQ
 
         print("ACTION_MASK_MODE: ", ACTION_MASK_MODE)
@@ -112,36 +145,233 @@ def main(config: ActorConfig):
         for frame in tcp_frame_stream(host=config.frame_host, frame_port=config.frame_port, img_w=192, img_h=192, img_c=3, debug_show=False):
             if frame is None:
                 episode_done_now = False
+                episode_result_now = 0
 
-                # 給 OSC callback 一點時間把 game_over 寫進 shared state
+                execution_action = None
+                execution_sent_at = None
+                execution_started_at = None
+
+                recovery_active = False
+                recovery_stage = 0
+
+                # 給 OSC callback 一點時間把 terminal result 寫進 shared state
                 for _ in range(10):   # 最多等 10 * 0.02 = 0.2 秒
                     with UE_EVENT_LOCK:
                         episode_done_now = UE_EVENT_STATE["episode_done_flag"]
+                        episode_result_now = UE_EVENT_STATE["episode_result"]
                     if episode_done_now:
                         break
                     time.sleep(0.02)
 
-                if episode_done_now:
+                if episode_done_now and not terminal_handled:
                     print("[UE event] episode done (disconnect terminal append)")
 
-                    appended = append_last_step(
-                        rollout_buffer=rollout_buffer,
+                    terminal_combat_state = capture_terminal_combat_state(event_audit, pending_combat)
+
+                    attribute_combat_events(
                         last_step_cache=last_step_cache,
+                        event_audit=event_audit,
+                        boss_hit_count=terminal_combat_state["pending_boss_hits"],
+                        player_hit_count=terminal_combat_state["pending_player_hits"],
+                        boss_damage=terminal_combat_state["pending_boss_damage"],
+                        player_damage=terminal_combat_state["pending_player_damage"],
                     )
 
-                    if appended:
-                        print("[rollout] terminal step appended on disconnect")
+                    event_audit_snapshot = {
+                        "player_hits_on_boss_raw":terminal_combat_state["raw_player_hits_on_boss"],
+                        "boss_hits_on_player_raw":terminal_combat_state["raw_boss_hits_on_player"],
+                        "unattributed_boss_hits_on_player":event_audit.unattributed_boss_hits_on_player,
+                        "unattributed_player_hits_on_boss":event_audit.unattributed_player_hits_on_boss,
+                        "unattributed_boss_damage_to_player":event_audit.unattributed_boss_damage_to_player,
+                        "unattributed_player_damage_to_boss":event_audit.unattributed_player_damage_to_boss,
+                        "boss_damage_to_player_raw":terminal_combat_state["boss_damage_to_player_raw"],
+                        "player_damage_to_boss_raw":terminal_combat_state["player_damage_to_boss_raw"],
+                        "final_player_health":terminal_combat_state["final_player_health"],
+                        "final_boss_health":terminal_combat_state["final_boss_health"],
+                        "player_max_hp": event_audit.player_max_hp,
+                        "boss_max_hp": event_audit.boss_max_hp
+                    }
 
+                    finalize_episode(
+                        rollout_buffer=rollout_buffer,
+                        last_step_cache=last_step_cache,
+                        terminal_anchor_cache=terminal_anchor_cache,
+                        episode_metrics=episode_metrics,
+                        event_audit=event_audit_snapshot,
+                        ground_truth_audit=ground_truth_audit,
+                        actor_id=config.actor_id,
+                        episode_result=episode_result_now,
+                        policy_step=loaded_step,
+                    )
+
+                    terminal_handled = True
+                    last_step_cache = None
+                    terminal_anchor_cache = None
                     with UE_EVENT_LOCK:
                         UE_EVENT_STATE["episode_done_flag"] = False
+                        UE_EVENT_STATE["episode_result"] = 0
+                else:
+                    if rollout_buffer:
+                        print(
+                            f"[rollout] dropping {len(rollout_buffer)} steps "
+                            "on disconnect without terminal result"
+                        )
+                        rollout_buffer.clear()
+                    if not terminal_handled:
+                        episode_metrics = EpisodeMetrics(actor_id=config.actor_id)
 
-                if rollout_buffer:
-                    flush_rollout_buffer(rollout_buffer, config.actor_id, last_step_cache)
+                        with UE_EVENT_LOCK:
+                            event_audit.reset()
+                            pending_combat.reset()
+                            ground_truth_audit.reset()
 
-                print("[stream] disconnected, closing recorder")
-                break
-                #continue
-            
+                print("[stream] disconnected, waiting for UE reconnect")
+                last_step_cache = None
+                terminal_anchor_cache = None
+                reconnect_pending = True
+                continue
+
+            if reconnect_pending:
+                print("[stream] UE reconnected, resetting runtime state")
+
+                presence_state = init_presence_state()
+                vis_state = None
+                pol_state = policy_init()
+
+                frame_ring_buffer.clear()
+                pushed_frames = 0
+                recv_frames = 0
+
+                recovery_active = False
+                recovery_stage = 0
+                recovery_turn_failed = False
+                recovery_verify_pending = False
+                recovery_verify_action = None
+                recovery_turn_sign = 1
+
+                execution_action = None
+                execution_sent_at = None
+                execution_started_at = None
+
+                force_decision = False
+
+                hit_turn_pending = False
+                hit_turn_attempts = 0
+
+                terminal_handled = False
+
+                episode_metrics = EpisodeMetrics(
+                    actor_id=config.actor_id
+                )
+
+                with UE_EVENT_LOCK:
+                    event_audit.reset()
+                    pending_combat.reset()
+                    ground_truth_audit.reset()
+
+                    UE_EVENT_STATE["episode_done_flag"] = False
+                    UE_EVENT_STATE["episode_result"] = 0
+
+                reset_ue_episode_state(
+                    UE_EVENT_LOCK=UE_EVENT_LOCK,
+                    UE_EVENT_STATE=UE_EVENT_STATE,
+                )
+
+                last_step_cache = None
+                terminal_anchor_cache = None
+
+                reconnect_pending = False
+
+            with UE_EVENT_LOCK:
+                episode_started = UE_EVENT_STATE["episode_start_pulse"]
+                episode_done = UE_EVENT_STATE["episode_done_flag"]
+                episode_result = UE_EVENT_STATE["episode_result"]
+
+                if episode_started:
+                    UE_EVENT_STATE["episode_start_pulse"] = False
+
+            if episode_done and episode_result and not terminal_handled:
+
+                terminal_combat_state = capture_terminal_combat_state(event_audit, pending_combat)
+
+                attribute_combat_events(
+                    last_step_cache=last_step_cache,
+                    event_audit=event_audit,
+                    boss_hit_count=terminal_combat_state["pending_boss_hits"],
+                    player_hit_count=terminal_combat_state["pending_player_hits"],
+                    boss_damage=terminal_combat_state["pending_boss_damage"],
+                    player_damage=terminal_combat_state["pending_player_damage"]
+                )
+
+                event_audit_snapshot = {
+                    "player_hits_on_boss_raw":terminal_combat_state["raw_player_hits_on_boss"],
+                    "boss_hits_on_player_raw":terminal_combat_state["raw_boss_hits_on_player"],
+                    "unattributed_boss_hits_on_player":event_audit.unattributed_boss_hits_on_player,
+                    "unattributed_player_hits_on_boss":event_audit.unattributed_player_hits_on_boss,
+                    "unattributed_boss_damage_to_player":event_audit.unattributed_boss_damage_to_player,
+                    "unattributed_player_damage_to_boss":event_audit.unattributed_player_damage_to_boss,
+                    "boss_damage_to_player_raw":terminal_combat_state["boss_damage_to_player_raw"],
+                    "player_damage_to_boss_raw":terminal_combat_state["player_damage_to_boss_raw"],
+                    "final_player_health":terminal_combat_state["final_player_health"],
+                    "final_boss_health":terminal_combat_state["final_boss_health"],
+                    "player_max_hp": event_audit.player_max_hp,
+                    "boss_max_hp": event_audit.boss_max_hp
+                }
+
+                finalize_episode(
+                    rollout_buffer=rollout_buffer,
+                    last_step_cache=last_step_cache,
+                    terminal_anchor_cache=terminal_anchor_cache,
+                    episode_metrics=episode_metrics,
+                    event_audit=event_audit_snapshot,
+                    ground_truth_audit=ground_truth_audit,
+                    actor_id=config.actor_id,
+                    episode_result=episode_result,
+                    policy_step=loaded_step,
+                )
+                terminal_handled = True
+                last_step_cache = None
+                terminal_anchor_cache = None
+
+                with UE_EVENT_LOCK:
+                    UE_EVENT_STATE["episode_done_flag"] = False
+                    UE_EVENT_STATE["episode_result"] = 0
+
+            if episode_started:
+                print("[episode] New episode started, resetting runtime state")
+                presence_state = init_presence_state()
+                vis_state = None
+                pol_state = policy_init()
+
+                frame_ring_buffer.clear()
+
+                pushed_frames = 0
+                recv_frames = 0
+                recovery_active = False
+                recovery_stage = 0
+                recovery_turn_failed = False
+                recovery_verify_pending = False
+                recovery_verify_action = None
+                execution_action = None
+                execution_sent_at = None
+                execution_started_at = None
+                force_decision = False
+                hit_turn_pending = False
+                hit_turn_attempts = 0
+                terminal_handled = False
+                episode_metrics = EpisodeMetrics(actor_id=config.actor_id)
+                with UE_EVENT_LOCK:
+                    event_audit.reset()
+                    pending_combat.reset()
+                    ground_truth_audit.reset()
+
+                last_step_cache = None
+                terminal_anchor_cache = None
+
+                reset_ue_episode_state(UE_EVENT_LOCK=UE_EVENT_LOCK, UE_EVENT_STATE=UE_EVENT_STATE)
+            elif terminal_handled:
+                continue
+
             recv_frames += 1
 
             if recv_frames % sample_every != 0:
@@ -180,10 +410,121 @@ def main(config: ActorConfig):
             frame_ring_buffer.append(frame)
             pushed_frames += 1
 
+            # =====================================
+            # Lightweight Execution Event Polling
+            # 每張 frame 都檢查，不等 CLIP_STRIDE
+            # =====================================
+            with UE_EVENT_LOCK:
+                ue_act_start_now = UE_EVENT_STATE["act_start_pulse"]
+                ue_act_end_now = UE_EVENT_STATE["act_end_pulse"]
+                cantmove_now = UE_EVENT_STATE["cantmove_pulse"]
+
+                UE_EVENT_STATE["act_start_pulse"] = False
+                UE_EVENT_STATE["act_end_pulse"] = False
+                UE_EVENT_STATE["cantmove_pulse"] = False
+
+            if cantmove_now:
+
+                #正在 Recovery SearchTurn
+                if (recovery_active and recovery_stage == 2 and execution_action == "SearchTurn"):
+                    recovery_turn_failed = True
+
+                    print("[recovery] turn failed -> EvadeBack required")
+
+                #正在驗證 SearchTurn 後的第一個 movement
+                elif (
+                    recovery_verify_pending
+                    and recovery_verify_action is not None
+                    and execution_action == recovery_verify_action
+                ):
+                    recovery_verify_pending = False
+                    recovery_verify_action = None
+
+                    recovery_active = True
+                    recovery_stage = 3  # 直接 EvadeBack
+
+                #一般情況
+                elif not recovery_active:
+                    recovery_active = True
+                    recovery_stage = 1
+                    recovery_turn_failed = False
+
+                    print("[recovery] cantmove -> SearchTurn queued")
+
+            now = monotonic()
+
+            if execution_action is not None:
+
+                if ue_act_start_now and execution_started_at is None:
+                    execution_started_at = now
+                    print(f"[execution] {execution_action} started")
+
+                if ue_act_end_now:
+                    print(f"[execution] {execution_action} finished by /actend")
+
+                    finished_action = execution_action
+                    if recovery_verify_pending and recovery_verify_action == finished_action:
+                        recovery_verify_pending = False
+                        recovery_verify_action = None
+                        recovery_turn_sign *= -1
+
+                    with UE_EVENT_LOCK:
+                        ground_truth_audit.finish_action(
+                            finished_action
+                        )
+
+                    execution_action = None
+                    execution_sent_at = None
+                    execution_started_at = None
+
+                    force_decision = True
+
+                elif (
+                    execution_started_at is not None
+                    and now - execution_started_at >= ACTION_END_TIMEOUT_SEC
+                ):
+                    print(
+                        f"[execution watchdog] {execution_action} "
+                        f"no /actend for {ACTION_END_TIMEOUT_SEC:.1f}s -> release"
+                    )
+
+                    with UE_EVENT_LOCK:
+                        ground_truth_audit.abort_action(
+                            "actend_timeout"
+                        )
+
+                    execution_action = None
+                    execution_sent_at = None
+                    execution_started_at = None
+
+                    force_decision = True
+
+                elif (
+                    execution_started_at is None
+                    and execution_sent_at is not None
+                    and now - execution_sent_at >= ACTION_START_TIMEOUT_SEC
+                ):
+                    print(
+                        f"[execution watchdog] {execution_action} "
+                        "no /actstart -> release"
+                    )
+
+                    with UE_EVENT_LOCK:
+                        ground_truth_audit.abort_action(
+                            "actstart_timeout"
+                        )
+
+                    execution_action = None
+                    execution_sent_at = None
+                    execution_started_at = None
+
+                    force_decision = True
+
             if len(frame_ring_buffer) < CLIP_FRAMES:
                 continue
-            if pushed_frames % CLIP_STRIDE != 0:
+            if (not force_decision) and (pushed_frames % CLIP_STRIDE != 0):
                 continue
+            force_decision = False
 
             frame_id_end = pushed_frames - 1
             frames = build_frame_tensor(frame_ring_buffer)
@@ -226,9 +567,31 @@ def main(config: ActorConfig):
                 frame_id_end=frame_id_end,
             )
 
+            if info["visible"] == 1:
+                hit_turn_attempts = 0
+
             extra_tensor = build_extra_tensor(info, pol_state, frame_id_end)
+            now = monotonic()
 
             with UE_EVENT_LOCK:
+                if (
+                    UE_EVENT_STATE["att1_active"]
+                    and UE_EVENT_STATE["att1_deadline"] is not None
+                    and now >= UE_EVENT_STATE["att1_deadline"]
+                ):
+                    UE_EVENT_STATE["att1_active"] = False
+                    UE_EVENT_STATE["att1_deadline"] = None
+                    print("[attack watchdog] att1 timeout -> auto unfreeze")
+
+                if (
+                    UE_EVENT_STATE["att2_active"]
+                    and UE_EVENT_STATE["att2_deadline"] is not None
+                    and now >= UE_EVENT_STATE["att2_deadline"]
+                ):
+                    UE_EVENT_STATE["att2_active"] = False
+                    UE_EVENT_STATE["att2_deadline"] = None
+                    print("[attack watchdog] att2 timeout -> auto unfreeze")
+
                 ue_att1_active = UE_EVENT_STATE["att1_active"]
                 ue_att1_start = UE_EVENT_STATE["att1_start_pulse"]
                 ue_att1_end = UE_EVENT_STATE["att1_end_pulse"]
@@ -237,24 +600,27 @@ def main(config: ActorConfig):
                 ue_att2_start = UE_EVENT_STATE["att2_start_pulse"]
                 ue_att2_end = UE_EVENT_STATE["att2_end_pulse"]
 
-                ue_boss_hit = UE_EVENT_STATE["boss_hit_pulse"]
-                ue_player_hit = UE_EVENT_STATE["player_hit_pulse"]
+                ue_boss_hit_count = pending_combat.boss_hit_count
+                ue_player_hit_count = pending_combat.player_hit_count
+                ue_boss_damage = pending_combat.boss_damage
+                ue_player_damage = pending_combat.player_damage
                 ue_episode_done = UE_EVENT_STATE["episode_done_flag"]
+                ue_episode_result = UE_EVENT_STATE["episode_result"]
+                notseeplayer = UE_EVENT_STATE["notseeplayer_pulse"]
 
                 # pulse 讀完就清掉
                 UE_EVENT_STATE["att1_start_pulse"] = False
                 UE_EVENT_STATE["att1_end_pulse"] = False
                 UE_EVENT_STATE["att2_start_pulse"] = False
                 UE_EVENT_STATE["att2_end_pulse"] = False
-                UE_EVENT_STATE["boss_hit_pulse"] = False
-                UE_EVENT_STATE["player_hit_pulse"] = False
+                UE_EVENT_STATE["notseeplayer_pulse"] = False
+                pending_combat.reset()
 
             if last_step_cache is not None:
-                if ue_player_hit:
-                    last_step_cache["ue_player_hit_count"] += 1
-
-                if ue_boss_hit:
-                    last_step_cache["ue_boss_hit_count"] += 1
+                last_step_cache["ue_player_hit_count"] += ue_player_hit_count
+                last_step_cache["ue_boss_hit_count"] += ue_boss_hit_count
+                last_step_cache["ue_player_damage"] += ue_player_damage
+                last_step_cache["ue_boss_damage"] += ue_boss_damage
 
                 if ue_att1_start:
                     last_step_cache["ue_att1_start"] = True
@@ -268,6 +634,13 @@ def main(config: ActorConfig):
 
                 if ue_episode_done:
                     last_step_cache["ue_episode_done"] = True
+                    last_step_cache["ue_episode_result"] = ue_episode_result
+            else:
+                event_audit.unattributed_player_hits_on_boss += ue_boss_hit_count
+                event_audit.unattributed_boss_hits_on_player += ue_player_hit_count
+                event_audit.unattributed_player_damage_to_boss += ue_boss_damage
+                event_audit.unattributed_boss_damage_to_player += ue_player_damage
+                
             
             if ue_att1_start:
                 print("[UE event] boss normal attack start")
@@ -277,58 +650,264 @@ def main(config: ActorConfig):
                 print("[UE event] boss skill attack1 start")
             if ue_att2_end:
                 print("[UE event] boss skill attack1 end")
-            if ue_boss_hit:
-                print("[UE event] boss hit")
-            if ue_player_hit:
-                print("[UE event] player hit")
-            if ue_episode_done:
-                print("[UE event] episode done")
-                if last_step_cache is not None:
-                    append_cached_step(
-                        rollout_buffer,
-                        last_step_cache,
-                        done=1,
-                    )
-                    last_step_cache = None
+            if ue_boss_hit_count>0:
+                print(f"[UE event] boss hit x {ue_boss_hit_count}")
 
-                flush_rollout_buffer(rollout_buffer, config.actor_id, last_step_cache)
+                if (info["visible"] == 0 and not recovery_active and hit_turn_attempts < 2):
+                        hit_turn_pending = True
+
+                        print("[hit reaction] boss hit while player unseen -> queue SearchTurn +135")
+                else:
+                    hit_turn_pending = False
+            if ue_player_hit_count>0:
+                print(f"[UE event] player hit x {ue_player_hit_count}")
+            if ue_episode_done and not terminal_handled:
+                print("[UE event] episode done")
+
+                terminal_combat_state = capture_terminal_combat_state(event_audit, pending_combat)
+
+                attribute_combat_events(
+                    last_step_cache=last_step_cache,
+                    event_audit=event_audit,
+                    boss_hit_count=terminal_combat_state["pending_boss_hits"],
+                    player_hit_count=terminal_combat_state["pending_player_hits"],
+                    boss_damage=terminal_combat_state["pending_boss_damage"],
+                    player_damage=terminal_combat_state["pending_player_damage"]
+                )
+
+                event_audit_snapshot = {
+                    "player_hits_on_boss_raw":terminal_combat_state["raw_player_hits_on_boss"],
+                    "boss_hits_on_player_raw":terminal_combat_state["raw_boss_hits_on_player"],
+                    "unattributed_boss_hits_on_player":event_audit.unattributed_boss_hits_on_player,
+                    "unattributed_player_hits_on_boss":event_audit.unattributed_player_hits_on_boss,
+                    "unattributed_boss_damage_to_player":event_audit.unattributed_boss_damage_to_player,
+                    "unattributed_player_damage_to_boss":event_audit.unattributed_player_damage_to_boss,
+                    "boss_damage_to_player_raw":terminal_combat_state["boss_damage_to_player_raw"],
+                    "player_damage_to_boss_raw":terminal_combat_state["player_damage_to_boss_raw"],
+                    "final_player_health":terminal_combat_state["final_player_health"],
+                    "final_boss_health":terminal_combat_state["final_boss_health"],
+                    "player_max_hp": event_audit.player_max_hp,
+                    "boss_max_hp": event_audit.boss_max_hp
+                }
+
+                finalize_episode(
+                    rollout_buffer=rollout_buffer,
+                    last_step_cache=last_step_cache,
+                    terminal_anchor_cache=terminal_anchor_cache,
+                    episode_metrics=episode_metrics,
+                    event_audit=event_audit_snapshot,
+                    ground_truth_audit=ground_truth_audit,
+                    actor_id=config.actor_id,
+                    episode_result=ue_episode_result,
+                    policy_step=loaded_step,
+                )
+                terminal_handled = True
+                last_step_cache = None
+                terminal_anchor_cache = None
 
                 with UE_EVENT_LOCK:
                     UE_EVENT_STATE["episode_done_flag"] = False
+                    UE_EVENT_STATE["episode_result"] = 0
 
+                continue
+
+            if (notseeplayer and execution_action in {"StrafeLeft", "StrafeRight"}):
+                rejected_action = execution_action
+
+                print(f"[execution fallback] {rejected_action} rejected by /notseeplayer -> Advance")
+
+                # 原本 Strafe 根本沒有真正執行
+                execution_action = None
+                execution_sent_at = None
+                execution_started_at = None
+
+                # 這筆不能當成「Strafe 被成功執行」拿去訓練
+                if last_step_cache is not None:
+                    attribute_combat_events(
+                        last_step_cache=None,
+                        event_audit=event_audit,
+                        boss_hit_count=last_step_cache["ue_boss_hit_count"],
+                        player_hit_count=last_step_cache["ue_player_hit_count"],
+                        boss_damage=last_step_cache["ue_boss_damage"],
+                        player_damage=last_step_cache["ue_player_damage"],
+                    )
+                last_step_cache = None
+
+                # 改由 runtime fallback 執行 Advance
+                with UE_EVENT_LOCK:
+                    ground_truth_audit.abort_action(
+                        "notseeplayer_rejected"
+                    )
+
+                    ground_truth_audit.begin_action(
+                        action="Advance",
+                        source="runtime_fallback",
+                        pred_visible=int(info["visible"]),
+                        presence_prob=float(presence_prob),
+                        frame_id_end=frame_id_end,
+                        policy_step=loaded_step,
+                    )
+
+                send_action(
+                    {"action": "Advance"},
+                    action_client=action_client,
+                )
+
+                execution_action = "Advance"
+                execution_sent_at = monotonic()
+                execution_started_at = None
+
+                continue
+
+            if execution_action is not None:
                 continue
 
             if ue_att1_active or ue_att2_active:
                 print(f"[decision freeze] attack_active=1 at t={frame_id_end:05d}, skip new inference")
                 continue
-            if frame_id_end <= action_lock_until_frame:
-                print(
-                    f"[action freeze] "
-                    f"action={locked_action} "
-                    f"t={frame_id_end:05d} "
-                    f"until={action_lock_until_frame}, "
-                    f"skip policy inference and sending"
-                )
-                continue
-
-            # 已超過鎖定時間，解除鎖定
-            if locked_action is not None:
-                print(
-                    f"[action freeze ended] "
-                    f"action={locked_action} "
-                    f"at t={frame_id_end:05d}"
-                )
-
-                locked_action = None
-                action_lock_until_frame = -1
 
             if last_step_cache is not None:
-                append_cached_step(
-                    rollout_buffer,
-                    last_step_cache,
-                    done=0,
-                )
+                if terminal_anchor_cache is not None:
+                    append_and_record_step(
+                        rollout_buffer=rollout_buffer,
+                        cache=terminal_anchor_cache,
+                        episode_metrics=episode_metrics,
+                        done=0,
+                    )
+                terminal_anchor_cache = last_step_cache
                 last_step_cache = None
+
+                if len(rollout_buffer) >= ROLLOUT_SAVE_EVERY:
+                    flush_rollout_buffer(
+                        rollout_buffer,
+                        config.actor_id,
+                        terminal_anchor_cache,
+                    )
+
+            # =========================
+            # Stuck Recovery Controller
+            # =========================
+            if recovery_active:
+                # Stage 1: SearchTurn first
+                if recovery_stage == 1:
+                    with UE_EVENT_LOCK:
+                        ground_truth_audit.begin_action(
+                        action="SearchTurn",
+                        source="recovery",
+                        pred_visible=int(info["visible"]),
+                        presence_prob=float(presence_prob),
+                        frame_id_end=frame_id_end,
+                        policy_step=loaded_step,
+                    )
+
+                    recovery_angle = 90.0 * recovery_turn_sign
+                    send_action(
+                        {"action": "SearchTurn", "angle": recovery_angle,},
+                        action_client=action_client,
+                    )
+
+                    execution_action = "SearchTurn"
+                    execution_sent_at = monotonic()
+                    execution_started_at = None
+
+                    recovery_stage = 2
+                    print(f"[recovery] try SearchTurn {recovery_angle:+.0f}")
+                    continue
+
+                # Stage 2: Fallback if SearchTurn failed
+                if recovery_stage == 2:
+                    if recovery_turn_failed:
+                        recovery_stage = 3
+
+                        print("[recovery] turn failed -> fallback EvadeBack")
+
+                    else:
+                        recovery_active = False
+                        recovery_stage = 0
+                        recovery_turn_failed = False
+
+                        recovery_verify_pending = True
+                        recovery_verify_action = None
+
+                        print("[recovery] SearchTurn finished -> waiting for movement verification")
+                    continue
+
+                # Stage 3: EvadeBack
+                if recovery_stage == 3:
+                    with UE_EVENT_LOCK:
+                        ground_truth_audit.begin_action(
+                            action="EvadeBack",
+                            source="recovery",
+                            pred_visible=int(info["visible"]),
+                            presence_prob=float(presence_prob),
+                            frame_id_end=frame_id_end,
+                            policy_step=loaded_step,
+                        )
+                        
+                    send_action(
+                        {"action": "EvadeBack"},
+                        action_client=action_client,
+                    )
+
+                    execution_action = "EvadeBack"
+                    execution_sent_at = monotonic()
+                    execution_started_at = None
+
+                    recovery_stage = 4
+
+                    print(
+                        "[recovery] fallback -> EvadeBack"
+                    )
+                    continue
+
+                # Stage 4: Wait for EvadeBack to finish
+                if recovery_stage == 4:
+
+                    recovery_active = False
+                    recovery_stage = 0
+                    recovery_turn_failed = False
+
+                    print(
+                        "[recovery] EvadeBack finished -> return control to policy"
+                    )
+
+                    continue
+
+            # =========================
+            # Hit Reaction Controller
+            # =========================
+            if hit_turn_pending:
+                with UE_EVENT_LOCK:
+                    ground_truth_audit.begin_action(
+                        action="SearchTurn",
+                        source="hit_reaction",
+                        pred_visible=int(info["visible"]),
+                        presence_prob=float(presence_prob),
+                        frame_id_end=frame_id_end,
+                        policy_step=loaded_step,
+                    )
+
+                send_action(
+                    {
+                        "action": "SearchTurn",
+                        "angle": 135.0,
+                    },
+                    action_client=action_client,
+                )
+
+                execution_action = "SearchTurn"
+                execution_sent_at = monotonic()
+                execution_started_at = None
+
+                hit_turn_pending = False
+                hit_turn_attempts += 1
+
+                print(
+                    f"[hit reaction] SearchTurn +135 "
+                    f"(attempt {hit_turn_attempts}/2)"
+                )
+
+                continue
 
             action_mask = build_action_mask(pol_state, frame_id_end, info, mode=ACTION_MASK_MODE)
 
@@ -429,14 +1008,14 @@ def main(config: ActorConfig):
                 "ue_att2_end": False,
                 "ue_boss_hit_count": 0,
                 "ue_player_hit_count": 0,
+                "ue_boss_damage": 0,
+                "ue_player_damage": 0,
                 "ue_episode_done": False,
+                "ue_episode_result": 0,
 
                 "action_mask": action_mask.copy(),
                 "actor_policy_step": loaded_step,
             }
-
-            if len(rollout_buffer) >= ROLLOUT_SAVE_EVERY or ue_episode_done:
-                flush_rollout_buffer(rollout_buffer, config.actor_id, last_step_cache)
 
             print(
                 f"[t={frame_id_end:05d}] "
@@ -478,7 +1057,27 @@ def main(config: ActorConfig):
                 "seq": SEQ
             }
 
+            with UE_EVENT_LOCK:
+                ground_truth_audit.begin_action(
+                    action=action,
+                    source="policy",
+                    pred_visible=int(info["visible"]),
+                    presence_prob=float(presence_prob),
+                    frame_id_end=frame_id_end,
+                    policy_step=loaded_step,
+                )
             send_action(jsonMsg, action_client=action_client)
+
+            execution_action = action
+            execution_sent_at = monotonic()
+            execution_started_at = None
+
+            if recovery_verify_pending and execution_action in {"Advance", "StrafeLeft", "StrafeRight"}:
+                recovery_verify_action = execution_action
+
+            print(
+                f"[execution] sent {execution_action}, waiting for /actstart"
+            )
 
             if POLICY_MODE == "impala":
                 decision_count+=1
@@ -486,22 +1085,6 @@ def main(config: ActorConfig):
                 if decision_count %10 == 0:
                     loaded_step = reload_AC_if_newer(model, loaded_step, str(ACTOR_CHECKPOINT_PATH), device=device)
 
-            if (
-                action in BLOCKING_ACTIONS
-                and fire_frame is not None
-                and pol_state["hold_until_frame"] is not None
-            ):
-                locked_action = action
-                action_lock_until_frame = int(
-                    pol_state["hold_until_frame"]
-                )
-
-                print(
-                    f"[action freeze started] "
-                    f"action={locked_action} "
-                    f"fire_frame={fire_frame} "
-                    f"until={action_lock_until_frame}"
-                )
     finally:
         if video_writer is not None:
             video_writer.release()
@@ -573,6 +1156,138 @@ def derive_rule_pred_name(info):
         return "move", 0.8
 
     return "idle", 0.6
+
+def finalize_episode(
+    *,
+    rollout_buffer,
+    last_step_cache,
+    terminal_anchor_cache,
+    episode_metrics,
+    event_audit,
+    ground_truth_audit,
+    actor_id,
+    episode_result,
+    policy_step,
+):
+    with UE_EVENT_LOCK:
+        if ground_truth_audit.current is not None:
+            ground_truth_audit.abort_action(
+                "episode_terminal"
+            )
+    
+    if last_step_cache is not None:
+        if terminal_anchor_cache is not None:
+            append_and_record_step(
+                rollout_buffer=rollout_buffer,
+                cache=terminal_anchor_cache,
+                episode_metrics=episode_metrics,
+                done=0,
+            )
+
+        last_step_cache["ue_episode_done"] = True
+        last_step_cache["ue_episode_result"] = episode_result
+
+        append_and_record_step(
+            rollout_buffer=rollout_buffer,
+            cache=last_step_cache,
+            episode_metrics=episode_metrics,
+            done=1,
+        )
+    elif terminal_anchor_cache is not None:
+        terminal_anchor_cache["ue_episode_done"] = True
+        terminal_anchor_cache["ue_episode_result"] = episode_result
+
+        append_and_record_step(
+            rollout_buffer=rollout_buffer,
+            cache=terminal_anchor_cache,
+            episode_metrics=episode_metrics,
+            done=1,
+        )
+    else:
+        print(
+            "[episode warning] terminal received "
+            "without any trainable policy transition"
+        )
+        
+
+    summary = episode_metrics.finish_episode(
+        episode_result=episode_result,
+        event_audit=event_audit,
+        policy_step=policy_step,
+    )
+
+    print(format_summary(summary))
+    print(format_gt_summary(ground_truth_audit.build_summary()))
+
+    if rollout_buffer:
+        flush_rollout_buffer(rollout_buffer, actor_id)
+
+def append_and_record_step(
+    *,
+    rollout_buffer,
+    cache,
+    episode_metrics,
+    done,
+):
+    rewards = append_cached_step(
+                rollout_buffer,
+                cache,
+                done=done,
+            )
+    if rewards is None:
+        return
+    
+    resolved = resolve_priority_reward(
+            reward_high=float(rewards["high_reward"]),
+            reward_medium=float(rewards["medium_reward"]),
+            reward_low=float(rewards["low_reward"]),
+            ue_player_damage=float(cache["ue_player_damage"]),
+            ue_boss_damage=float(cache["ue_boss_damage"]),
+            ue_episode_result=cache["ue_episode_result"],
+        )
+    episode_metrics.record_transition(
+            cache=cache,
+            rewards=rewards,
+            selected_reward=resolved["reward"]
+        )
+    return rewards
+
+def capture_terminal_combat_state(event_audit, pending_combat):
+
+    with UE_EVENT_LOCK:
+        pending_boss_hits = pending_combat.boss_hit_count
+        pending_player_hits = pending_combat.player_hit_count
+        pending_boss_damage = pending_combat.boss_damage
+        pending_player_damage = pending_combat.player_damage
+
+        # Consume pending hit events.
+        pending_combat.reset()
+
+        # Freeze raw OSC-event counts at the same moment.
+        raw_player_hits_on_boss = event_audit.player_hits_on_boss_raw
+        raw_boss_hits_on_player = event_audit.boss_hits_on_player_raw
+
+        boss_damage_to_player_raw = event_audit.boss_damage_to_player_raw
+        player_damage_to_boss_raw = event_audit.player_damage_to_boss_raw
+        final_player_health = event_audit.final_player_health
+        final_boss_health = event_audit.final_boss_health
+
+    return {
+        # Pending events still waiting for attribution
+        "pending_boss_hits": pending_boss_hits,
+        "pending_player_hits": pending_player_hits,
+        "pending_boss_damage": pending_boss_damage,
+        "pending_player_damage": pending_player_damage,
+
+        # Raw UE events received during this episode
+        "raw_player_hits_on_boss": raw_player_hits_on_boss,
+        "raw_boss_hits_on_player": raw_boss_hits_on_player,
+
+        "boss_damage_to_player_raw": boss_damage_to_player_raw,
+        "player_damage_to_boss_raw": player_damage_to_boss_raw,
+        "final_player_health": final_player_health,
+        "final_boss_health": final_boss_health
+    }
 
 # def save_teacher_sample(frames, extra, action_name, frame_id_end):
 #     out_dir = Path("data/teacher_samples")

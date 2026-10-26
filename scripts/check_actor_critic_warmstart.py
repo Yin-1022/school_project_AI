@@ -8,8 +8,7 @@ from models import (
 )
 
 from impala_unroll import build_unrolls
-
-ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
+from constant import ROLLOUT_DIR
 
 BC_WEIGHTS_PATH = "data/meta/best_teacher_policy.pt"
 

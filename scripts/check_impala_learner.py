@@ -5,8 +5,8 @@ from pathlib import Path
 from models import (TeacherActorCriticNet, TeacherPolicyNet)
 from impala_unroll import build_unrolls
 from impala_learner import warmstart_actor_critic_from_bc, set_impala_train_mode
+from constant import ROLLOUT_DIR
 
-ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
 BATCH_UNROLLS = 1
 
 BC_WEIGHTS_PATH = Path("data/meta/best_teacher_policy.pt")

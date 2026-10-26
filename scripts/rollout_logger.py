@@ -7,6 +7,8 @@ from constant import (
     MAP_VERSION,
     ACTION_SPACE_VERSION,
     ROLLOUT_PROFILE,
+    PLAYER_MAX_HP,
+    BOSS_MAX_HP,
 )
 
 def append_rollout_step(buffer, frames, extra, logits, probs, behavior_probs,
@@ -14,7 +16,9 @@ def append_rollout_step(buffer, frames, extra, logits, probs, behavior_probs,
                         pol_state, frame_id_end, fire_frame,
                         ue_att1_start, ue_att1_end,
                         ue_att2_start, ue_att2_end,
-                        ue_boss_hit_count, ue_player_hit_count, ue_episode_done,
+                        ue_boss_hit_count, ue_player_hit_count,
+                        ue_boss_damage, ue_player_damage,
+                        ue_episode_done, ue_episode_result,
                         reward_high, reward_medium, reward_low, done, 
                         action_mask=None, actor_policy_step=0):
     step = {
@@ -41,7 +45,10 @@ def append_rollout_step(buffer, frames, extra, logits, probs, behavior_probs,
         "ue_att2_end": np.int64(1 if ue_att2_end else 0),
         "ue_boss_hit_count": np.int64(ue_boss_hit_count),
         "ue_player_hit_count": np.int64(ue_player_hit_count),
+        "ue_boss_damage": np.float32(ue_boss_damage),
+        "ue_player_damage": np.float32(ue_player_damage),
         "ue_episode_done": np.int64(1 if ue_episode_done else 0),
+        "ue_episode_result": np.int64(ue_episode_result),
         "action_mask": np.asarray(action_mask, dtype=np.bool_),
         "actor_policy_step": np.int64(actor_policy_step),
         # "value": np.float32(
@@ -64,14 +71,14 @@ def flush_rollout_buffer(buffer, actor_id, bootstrap_cathe=None):
 
     timestamp = int(time.time() * 1000)
     out_path = out_dir / (
-        f"rollout_v3_"
+        f"rollout_v4_"
         f"{ROLLOUT_PROFILE}_"
         f"{ACTION_MASK_MODE}_"
         f"{actor_id}_"
         f"{timestamp}.npz"
     )
     temp_out_path = out_dir / (
-        f"rollout_v3_"
+        f"rollout_v4_"
         f"{ROLLOUT_PROFILE}_"
         f"{ACTION_MASK_MODE}_"
         f"{actor_id}_"
@@ -110,7 +117,10 @@ def flush_rollout_buffer(buffer, actor_id, bootstrap_cathe=None):
         "ue_att2_end": np.asarray([x["ue_att2_end"] for x in buffer],dtype=np.int64),
         "ue_boss_hit_count": np.asarray([x["ue_boss_hit_count"] for x in buffer],dtype=np.int64),
         "ue_player_hit_count": np.asarray([x["ue_player_hit_count"] for x in buffer],dtype=np.int64),
+        "ue_boss_damage": np.asarray([x["ue_boss_damage"] for x in buffer],dtype=np.float32),
+        "ue_player_damage": np.asarray([x["ue_player_damage"] for x in buffer],dtype=np.float32),
         "ue_episode_done": np.asarray([x["ue_episode_done"] for x in buffer],dtype=np.int64),
+        "ue_episode_result": np.asarray([x["ue_episode_result"] for x in buffer],dtype=np.int64),
 
         "action_mask": np.stack([x["action_mask"] for x in buffer],axis=0),
         "actor_policy_step": np.asarray([x["actor_policy_step"] for x in buffer],dtype=np.int64),
@@ -131,63 +141,73 @@ def flush_rollout_buffer(buffer, actor_id, bootstrap_cathe=None):
     print(f"[rollout] saved {len(buffer)} steps -> {out_path}")
     buffer.clear()
 
-def append_last_step(
-    rollout_buffer,
-    last_step_cache,
-):
+def append_last_step(rollout_buffer, last_step_cache,):
     if last_step_cache is None:
-        return False
+        return None
 
     last_step_cache["ue_episode_done"] = True
 
-    append_cached_step(
+    rewards = append_cached_step(
         rollout_buffer,
         last_step_cache,
         done=1,
     )
 
-    return True
+    return rewards
 
 def compute_reward_channels(
         info,final_action,
         ue_att1_start, ue_att1_end, ue_att2_start, ue_att2_end,
         ue_boss_hit_count, ue_player_hit_count,
+        ue_boss_damage, ue_player_damage,
+        ue_episode_result
     ):
 
     high_reward = 0.0
     medium_reward = 0.0
     low_reward = 0.0
+    TERMINAL_REWARD = 5.0
 
     #High level shaping reward
+    if ue_episode_result == 1:
+        high_reward += TERMINAL_REWARD
+    elif ue_episode_result == -1:
+        high_reward -= TERMINAL_REWARD
+    elif ue_episode_result == 0:
+        high_reward += 0.0
 
     #Medium level shaping reward
-    medium_reward += ue_player_hit_count * 1.0
-    medium_reward -= ue_boss_hit_count * 1.0
+    medium_reward += ue_player_damage / PLAYER_MAX_HP
+    medium_reward -= ue_boss_damage / BOSS_MAX_HP
 
     #Low level shaping reward
-    visible = info.get("visible", 0)
-    phase = info.get("phase", "patrol")
+    low_reward = 0.0
+    # Disabled for reward audit:
+    # action-based shaping can be exploited by repeated movement.
+
+    # visible = info.get("visible", 0)
+    # phase = info.get("phase", "patrol")
 
     # # 1) 玩家攻擊起手時，Boss 做 evasive 給較大正分
     # if ue_attack_start and final_action in {"EvadeBack", "Retreat"}:
     #         low_reward += 1.0
 
     # 2) track 時不要一直 Hold
-    if visible == 1 and phase == "track":
-        if final_action == "Hold":
-            low_reward -= 0.1
-        elif final_action in {"Advance", "StrafeLeft", "StrafeRight"}:
-            low_reward += 0.1
+    # if visible == 1 and phase == "track":
+    #     if final_action == "Hold":
+    #         low_reward -= 0.1
+    #     elif final_action in {"Advance", "StrafeLeft", "StrafeRight"}:
+    #         low_reward += 0.1
 
     # 3) reacq 時做 SearchTurn 給小正分
-    if phase == "reacq":
-        if final_action in {"SearchTurnLeft", "SearchTurnRight"}:
-            low_reward += 0.1
+    # if phase == "reacq":
+    #     if final_action in {"SearchTurnLeft", "SearchTurnRight"}:
+    #         low_reward += 0.1
 
     # 4) patrol 時做 PatrolStep 給小正分
-    if phase == "patrol":
-        if final_action in {"PatrolStepLeft", "PatrolStepRight"}:
-            low_reward += 0.05
+    # if phase == "patrol":
+    #     if final_action in {"PatrolStepLeft", "PatrolStepRight"}:
+    #         low_reward += 0.05
 
     return {
         "high_reward": np.float32(high_reward),
@@ -197,7 +217,7 @@ def compute_reward_channels(
 
 def append_cached_step(rollout_buffer, cache, done=0):
     if cache is None:
-        return False
+        return None
 
     rewards = compute_reward_channels(
         info=cache["info"],
@@ -208,6 +228,9 @@ def append_cached_step(rollout_buffer, cache, done=0):
         ue_att2_end=cache["ue_att2_end"],
         ue_boss_hit_count=cache["ue_boss_hit_count"],
         ue_player_hit_count=cache["ue_player_hit_count"],
+        ue_boss_damage=cache["ue_boss_damage"],
+        ue_player_damage=cache["ue_player_damage"],
+        ue_episode_result=cache["ue_episode_result"]
     )
 
     append_rollout_step(
@@ -230,7 +253,10 @@ def append_cached_step(rollout_buffer, cache, done=0):
         ue_att2_end=cache["ue_att2_end"],
         ue_boss_hit_count=cache["ue_boss_hit_count"],
         ue_player_hit_count=cache["ue_player_hit_count"],
+        ue_boss_damage=cache["ue_boss_damage"],
+        ue_player_damage=cache["ue_player_damage"],
         ue_episode_done=cache["ue_episode_done"],
+        ue_episode_result=cache["ue_episode_result"],
 
         reward_high=rewards["high_reward"],
         reward_medium=rewards["medium_reward"],
@@ -241,4 +267,4 @@ def append_cached_step(rollout_buffer, cache, done=0):
         actor_policy_step=cache["actor_policy_step"],
     )
 
-    return True
+    return rewards

@@ -1,8 +1,7 @@
 import numpy as np
 from pathlib import Path
 from reward_priority import resolve_priority_reward
-
-ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
+from constant import ROLLOUT_DIR
 
 def pad_first_dim(array, target_length):
     current_length = len(array)
@@ -52,15 +51,19 @@ def compute_selected_reward(data, start, valid_length):
             reward_high=float(data["reward_high"][data_index]),
             reward_medium=float(data["reward_medium"][data_index]),
             reward_low=float(data["reward_low"][data_index]),
-            ue_player_hit_count=int(data["ue_player_hit_count"][data_index]),
-            ue_boss_hit_count=int(data["ue_boss_hit_count"][data_index])
+            ue_player_damage=float(data["ue_player_damage"][data_index]),
+            ue_boss_damage=float(data["ue_boss_damage"][data_index]),
+            ue_episode_result=int(data["ue_episode_result"][data_index])
             )
         selected_reward[i] = resolved["reward"]
         reward_priority[i] = resolved["priority"]
 
     return selected_reward, reward_priority
 
-def build_unrolls(data, unroll_length=20, has_behavior_probs=False):
+def build_unrolls(data, unroll_length=20, has_behavior_probs=None):
+    if has_behavior_probs is None:
+        has_behavior_probs = "behavior_probs" in data.files
+
     required_fields = [
         "frames",
         "extra",
@@ -71,8 +74,11 @@ def build_unrolls(data, unroll_length=20, has_behavior_probs=False):
         "reward_low",
         "ue_player_hit_count",
         "ue_boss_hit_count",
+        "ue_player_damage",
+        "ue_boss_damage",
         "done",
         "probs",
+        "ue_episode_result",
     ]
 
     missing = [
@@ -206,6 +212,8 @@ def build_unrolls(data, unroll_length=20, has_behavior_probs=False):
                 "action_mask": source_action_mask[start:start + unroll_length],
                 "bootstrap_valid": 1
             }
+            if has_behavior_probs:
+                unroll_dict["behavior_probs"] = data["behavior_probs"][start:start + unroll_length]
             start = start + unroll_length
         else:
             break

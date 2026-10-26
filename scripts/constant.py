@@ -24,6 +24,9 @@ TEACHER_DATA_MODE = False
 TEACHER_EVADE_PROB = 0.25   
 TEACHER_EVADEBACK_PROB = 0.45 
 
+PLAYER_MAX_HP = 100.0
+BOSS_MAX_HP = 500.0
+
 POLICY_MODE = "impala"
 # "bc"
 # "impala"
@@ -50,7 +53,7 @@ elif ROLLOUT_PROFILE == "train":
     
 
 if POLICY_MODE in ["bc", "impala"]:
-    ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
+    ROLLOUT_DIR = Path("data/rollouts/rollouts_damage_v1")
 else:
     ROLLOUT_DIR = Path("data/rollouts/rollouts_rule")
 

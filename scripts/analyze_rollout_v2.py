@@ -8,9 +8,8 @@ from reward_priority import (
     PRIORITY_HIGH,
     resolve_priority_reward,
 )
-from constant import ACTION_ID_TO_NAME
+from constant import ACTION_ID_TO_NAME, BOSS_MAX_HP, PLAYER_MAX_HP, ROLLOUT_DIR
 
-ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
 PRIORITY_NAMES = {
     0: "NONE",
     1: "LOW",
@@ -39,8 +38,9 @@ def priority_distribution(files_len, total_transitions, files):
                 reward_high=float(data["reward_high"][j]),
                 reward_medium=float(data["reward_medium"][j]),
                 reward_low=float(data["reward_low"][j]),
-                ue_player_hit_count=int(data["ue_player_hit_count"][j]),
-                ue_boss_hit_count=int(data["ue_boss_hit_count"][j]),
+                ue_player_damage=float(data["ue_player_damage"][j]),
+                ue_boss_damage=float(data["ue_boss_damage"][j]),
+                ue_episode_result=int(data["ue_episode_result"][j]),
             )
             priority = resolved["priority"]
             priority_counts[priority] += 1
@@ -67,8 +67,9 @@ def selected_reward(files_len, files):
                 reward_high=float(data["reward_high"][i]),
                 reward_medium=float(data["reward_medium"][i]),
                 reward_low=float(data["reward_low"][i]),
-                ue_player_hit_count=int(data["ue_player_hit_count"][i]),
-                ue_boss_hit_count=int(data["ue_boss_hit_count"][i]),
+                ue_player_damage=float(data["ue_player_damage"][i]),
+                ue_boss_damage=float(data["ue_boss_damage"][i]),
+                ue_episode_result=int(data["ue_episode_result"][i]),
             )
             priority = resolved["priority"]
             if priority == PRIORITY_LOW:
@@ -172,8 +173,9 @@ def action_distribution(files_len, files):
                 reward_high=float(data["reward_high"][j]),
                 reward_medium=float(data["reward_medium"][j]),
                 reward_low=float(data["reward_low"][j]),
-                ue_player_hit_count=int(data["ue_player_hit_count"][j]),
-                ue_boss_hit_count=int(data["ue_boss_hit_count"][j]),
+                ue_player_damage=float(data["ue_player_damage"][j]),
+                ue_boss_damage=float(data["ue_boss_damage"][j]),
+                ue_episode_result=int(data["ue_episode_result"][j]),
             )
 
             selected_reward = resolved["reward"]
@@ -312,8 +314,8 @@ def sanity_check(files):
 
         for j in range(total_steps):
             expected_medium = (
-                int(data["ue_player_hit_count"][j])
-                - int(data["ue_boss_hit_count"][j])
+                float(data["ue_player_damage"][j]) / PLAYER_MAX_HP
+                - float(data["ue_boss_damage"][j]) / BOSS_MAX_HP
             )
 
             actual_medium = float(

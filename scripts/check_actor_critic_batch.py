@@ -8,8 +8,8 @@ from models import (
 )
 
 from impala_unroll import build_unrolls
+from constant import ROLLOUT_DIR
 
-ROLLOUT_DIR = Path("data/rollouts/rollouts_bc_v2")
 BATCH_UNROLLS = 1
 
 actor_critic = TeacherActorCriticNet(
