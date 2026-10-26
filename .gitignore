@@ -10,6 +10,8 @@ data/rollouts/
 data/meta/archive/
 data/teacher_samples/
 scripts/__pycache__/
+scripts/runtime/__pycache__/
+scripts/tests/__pycache__/
 scripts/tempCodeRunnerFile.py
 sendandreceiveosc.py
 tempCodeRunnerFile.py

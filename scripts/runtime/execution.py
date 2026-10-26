@@ -21,11 +21,13 @@ class ExecutionController:
         self.state.started_at = None
 
     def on_action_started(self) -> None:
-        if self.state.busy or not self.state.waiting_start:
-            self.state.waiting_start = False
-            self.state.started_at = monotonic()
+        if not self.state.busy or not self.state.waiting_start:
+            return
 
-    def on_action_end(self) -> None:
+        self.state.waiting_start = False
+        self.state.started_at = monotonic()
+
+    def on_action_end(self) -> RuntimeAction | None:
         if not self.state.busy:
             return
         completed_action = self.state.current_action
