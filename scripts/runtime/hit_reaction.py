@@ -34,7 +34,7 @@ class HitReactionController:
             return RuntimeAction(
                 "SearchTurn",
                 self.turn_angle,
-                ActionSource.RUNTIME_RECOVERY,
+                ActionSource.RUNTIME_HIT_REACTION,
             )
         else:
             return None

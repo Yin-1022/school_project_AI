@@ -36,7 +36,7 @@ def test_next_action():
     assert action is not None
     assert action.name == "SearchTurn"
     assert action.value == 135.0
-    assert action.source == ActionSource.RUNTIME_RECOVERY
+    assert action.source == ActionSource.RUNTIME_HIT_REACTION
     assert controller.pending
 
 
