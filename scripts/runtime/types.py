@@ -23,3 +23,16 @@ class ExecutionState:
     current_action: RuntimeAction | None = None
     sent_at: float | None = None
     started_at: float | None = None
+
+
+class ExecutionEndReason(str, Enum):
+    COMPLETED = "completed"
+    START_TIMEOUT = "actstart_timeout"
+    END_TIMEOUT = "actend_timeout"
+    REJECTED = "rejected"
+
+
+@dataclass(frozen=True)
+class ExecutionResult:
+    action: RuntimeAction
+    reason: ExecutionEndReason

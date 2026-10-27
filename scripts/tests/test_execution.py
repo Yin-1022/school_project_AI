@@ -1,5 +1,5 @@
 from runtime.execution import ExecutionController
-from runtime.types import RuntimeAction, ActionSource
+from runtime.types import ExecutionEndReason, RuntimeAction, ActionSource
 
 
 def test_execution_lifecycle():
@@ -32,9 +32,11 @@ def test_execution_lifecycle():
     assert controller.state.started_at is not None
 
     # 4. Action ended
-    completed = controller.on_action_end()
+    result = controller.on_action_end()
 
-    assert completed == action
+    assert result is not None
+    assert result.action == action
+    assert result.reason == ExecutionEndReason.COMPLETED
     assert controller.can_send()
     assert controller.state.current_action is None
     assert controller.state.sent_at is None
@@ -102,7 +104,7 @@ def test_action_start_timeout():
     )
 
     action = RuntimeAction(
-        "Advance", 0.0, ActionSource.POLICY
+        "SearchTurn", 90.0, ActionSource.RUNTIME_RECOVERY
     )
 
     controller.on_action_sent(action)
@@ -114,9 +116,12 @@ def test_action_start_timeout():
     assert not controller.can_send()
 
     # 超過 Start Timeout
-    assert controller.check_timeout(now=sent_at + 1.0) == "actstart_timeout"
+    result = controller.check_timeout(now=sent_at + 1.0)
+
+    assert result is not None
+    assert result.action == action
+    assert result.reason == ExecutionEndReason.START_TIMEOUT
     assert controller.can_send()
-    assert controller.state.current_action is None
 
 
 def test_action_end_timeout():
@@ -140,7 +145,11 @@ def test_action_end_timeout():
     assert not controller.can_send()
 
     # 超過 End Timeout
-    assert controller.check_timeout(now=started_at + 5.0) == "actend_timeout"
+    result = controller.check_timeout(now=started_at + 5.0)
+
+    assert result is not None
+    assert result.action == action
+    assert result.reason == ExecutionEndReason.END_TIMEOUT
     assert controller.can_send()
 
 
@@ -149,3 +158,133 @@ def test_no_timeout_when_idle():
 
     assert controller.check_timeout(now=100.0) is None
     assert controller.can_send()
+
+
+def test_abort_with_rejected_action():
+    controller = ExecutionController()
+
+    action = RuntimeAction(
+        "EvadeBack", 0.0, ActionSource.RUNTIME_RECOVERY
+    )
+
+    controller.on_action_sent(action)
+    controller.on_action_started()
+
+    result = controller.abort(ExecutionEndReason.REJECTED)
+
+    assert result is not None
+    assert result.action == action
+    assert result.reason == ExecutionEndReason.REJECTED
+    assert controller.can_send()
+
+
+def test_abort_while_idle():
+    controller = ExecutionController()
+
+    result = controller.abort(ExecutionEndReason.REJECTED)
+
+    assert result is None
+    assert controller.can_send()
+
+
+def test_actend_after_rejected():
+    controller = ExecutionController()
+
+    action = RuntimeAction(
+        "EvadeBack", 0.0, ActionSource.RUNTIME_RECOVERY
+    )
+
+    controller.on_action_sent(action)
+    controller.on_action_started()
+
+    result = controller.abort(ExecutionEndReason.REJECTED)
+
+    assert result is not None
+    assert result.action == action
+    assert result.reason == ExecutionEndReason.REJECTED
+    assert controller.can_send()
+
+    # After abort, on_action_end should return None
+    assert controller.on_action_end() is None
+
+
+def test_rejected_action_not_completed_twice():
+    controller = ExecutionController()
+
+    action = RuntimeAction(
+        "StrafeLeft",
+        0.0,
+        ActionSource.POLICY,
+    )
+
+    controller.on_action_sent(action)
+
+    result = controller.abort(
+        ExecutionEndReason.REJECTED
+    )
+
+    assert result is not None
+    assert result.action == action
+    assert result.reason == ExecutionEndReason.REJECTED
+
+    assert controller.on_action_end() is None
+    assert controller.can_send()
+
+
+def test_check_again_after_timeout():
+    controller = ExecutionController(
+        start_timeout=1.0,
+        end_timeout=5.0,
+    )
+
+    action=RuntimeAction(
+        "SearchTurn",
+        90.0,
+        ActionSource.RUNTIME_RECOVERY,
+    ),
+
+    controller.on_action_sent(action)
+    sent_at = controller.state.sent_at
+    assert sent_at is not None
+
+    result = controller.check_timeout(now=sent_at + 1.0)
+
+    assert result is not None
+    assert result.action == action
+    assert result.reason == ExecutionEndReason.START_TIMEOUT
+    assert controller.can_send()
+
+    assert controller.check_timeout(now=sent_at + 2.0) is None
+
+
+def test_invalid_abort_reason():
+    controller = ExecutionController()
+
+    action = RuntimeAction(
+        "EvadeBack", 0.0, ActionSource.RUNTIME_RECOVERY
+    )
+
+    controller.on_action_sent(action)
+    controller.on_action_started()
+
+    try:
+        controller.abort(reason=ExecutionEndReason.COMPLETED)
+        assert False, "Abort reason must be REJECTED"
+    except ValueError:
+        pass
+
+
+def test_reset():
+    controller = ExecutionController()
+
+    action = RuntimeAction(
+        "EvadeBack", 0.0, ActionSource.RUNTIME_RECOVERY
+    )
+
+    controller.on_action_sent(action)
+    controller.on_action_started()
+    controller.reset()
+
+    assert controller.can_send()
+    assert controller.state.current_action is None
+    assert controller.state.started_at is None

@@ -1,6 +1,6 @@
 from time import monotonic
 
-from .types import ExecutionState, RuntimeAction
+from .types import ActionSource, ExecutionState, RuntimeAction, ExecutionResult, ExecutionEndReason
 
 
 class ExecutionController:
@@ -29,32 +29,76 @@ class ExecutionController:
         self.state.waiting_start = False
         self.state.started_at = monotonic()
 
-    def on_action_end(self) -> RuntimeAction | None:
+    def on_action_end(self) -> ExecutionResult | None:
         if not self.state.busy:
             return
-        completed_action = self.state.current_action
-        self.reset()
-        return completed_action
+        action = self.state.current_action
 
-    def check_timeout(self, now: float | None = None) -> str |None:
+        if action is None:
+            return None
+
+        result = ExecutionResult(
+            action=action,
+            reason=ExecutionEndReason.COMPLETED,
+        )
+
+        self.reset()
+        return result
+
+    def check_timeout(self, now: float | None = None) -> ExecutionResult |None:
         if now is None:
             now = monotonic()
 
         if not self.state.busy:
             return None
+
+        action = self.state.current_action
+        if action is None:
+            return None
+
+        if self.state.waiting_start:
+            if now - self.state.sent_at >= self.start_timeout:
+                result = ExecutionResult(
+                    action=action,
+                    reason=ExecutionEndReason.START_TIMEOUT,
+                )
+                self.reset()
+                return result
+
         else:
-            if self.state.waiting_start:
-                if now - self.state.sent_at >= self.start_timeout:
-                    self.reset()
-                    return "actstart_timeout"
-                else:
-                    return None
-            else:
-                if now - self.state.started_at >= self.end_timeout:
-                    self.reset()
-                    return "actend_timeout"
-                else:
-                    return None
+            if now - self.state.started_at >= self.end_timeout:
+                result = ExecutionResult(
+                    action=action,
+                    reason=ExecutionEndReason.END_TIMEOUT,
+                )
+                self.reset()
+                return result
+
+        return None
+
+
+    def abort(
+        self,
+        reason: ExecutionEndReason,
+    ) -> ExecutionResult | None:
+        if reason != ExecutionEndReason.REJECTED:
+            raise ValueError("Abort reason must be REJECTED")
+
+        if not self.state.busy:
+            return None
+
+        action = self.state.current_action
+        if action is None:
+            return None
+
+        result = ExecutionResult(
+            action=action,
+            reason=ExecutionEndReason.REJECTED,
+        )
+
+        self.reset()
+        return result
+
                 
     def reset(self) -> None:
         self.state = ExecutionState()
