@@ -1,3 +1,4 @@
+import pytest
 from runtime.execution import ExecutionController
 from runtime.types import ExecutionEndReason, RuntimeAction, ActionSource
 
@@ -241,7 +242,7 @@ def test_check_again_after_timeout():
         "SearchTurn",
         90.0,
         ActionSource.RUNTIME_RECOVERY,
-    ),
+    )
 
     controller.on_action_sent(action)
     sent_at = controller.state.sent_at
@@ -267,11 +268,8 @@ def test_invalid_abort_reason():
     controller.on_action_sent(action)
     controller.on_action_started()
 
-    try:
-        controller.abort(reason=ExecutionEndReason.COMPLETED)
-        assert False, "Abort reason must be REJECTED"
-    except ValueError:
-        pass
+    with pytest.raises(ValueError):
+        controller.abort(ExecutionEndReason.COMPLETED)
 
 
 def test_reset():
