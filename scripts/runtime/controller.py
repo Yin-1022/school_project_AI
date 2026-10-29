@@ -24,14 +24,14 @@ class RuntimeController:
         self,
         policy_action: RuntimeAction | None = None,
     ) -> RuntimeAction | None:
-        if not self.can_send():
-            return None
-
         if (
             policy_action is not None
             and policy_action.source != ActionSource.POLICY
         ):
             raise ValueError("policy_action must have POLICY source")
+
+        if not self.can_send():
+            return None
 
         for controller in [
             self.recovery,

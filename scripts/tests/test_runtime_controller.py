@@ -1,7 +1,7 @@
 import pytest
 from runtime.controller import RuntimeController
 from runtime.types import ExecutionEndReason, RuntimeAction, ActionSource
-from scripts.runtime.stuck_recovery import RecoveryStage
+from runtime.stuck_recovery import RecoveryStage
 
 
 def test_recovery_has_highest_priority():
