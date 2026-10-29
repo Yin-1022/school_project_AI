@@ -3,7 +3,7 @@ from .attack import AttackGuard
 from .stuck_recovery import RecoveryStage, StuckRecoveryController
 from .hit_reaction import HitReactionController
 from .action_fallback import ActionFallbackController
-from .types import RuntimeAction, ExecutionResult, ExecutionEndReason
+from .types import RuntimeAction, ExecutionResult, ExecutionEndReason, ActionSource
 
 
 class RuntimeController:
@@ -26,6 +26,12 @@ class RuntimeController:
     ) -> RuntimeAction | None:
         if not self.can_send():
             return None
+
+        if (
+            policy_action is not None
+            and policy_action.source != ActionSource.POLICY
+        ):
+            raise ValueError("policy_action must have POLICY source")
 
         for controller in [
             self.recovery,
