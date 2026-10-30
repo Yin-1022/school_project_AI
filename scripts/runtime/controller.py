@@ -1,3 +1,4 @@
+from time import monotonic
 from .execution import ExecutionController
 from .attack import AttackGuard
 from .stuck_recovery import RecoveryStage, StuckRecoveryController
@@ -80,13 +81,19 @@ class RuntimeController:
         self.hit_reaction.on_boss_hit(
             visible=visible,
             recovery_active=(
-                self.recovery.stage != RecoveryStage.IDLE
+                self.recovery.stage != RecoveryStage.IDLE,
             ),
+            verify_pending=self.recovery.verify_pending,
         )
 
     def on_cantmove(self) -> None:
+        current_stage = self.recovery.stage
         self.recovery.on_cantmove(action=self.execution.state.current_action)
 
+        if current_stage == RecoveryStage.IDLE and self.recovery.stage != RecoveryStage.IDLE:
+            self.hit_reaction.cancel_pending()
+            self.fallback.cancel_pending()
+           
     def on_notseeplayer(self) -> ExecutionResult | None:
         current_action = self.execution.state.current_action
 
@@ -98,6 +105,11 @@ class RuntimeController:
         return self.execution.abort(ExecutionEndReason.REJECTED)
 
     def tick(self, now: float | None = None) -> ExecutionResult | None:
+        if now is None:
+            now = monotonic()
+
+        self.attack.check_timeouts(now=now)
+
         result = self.execution.check_timeout(now=now)
 
         if result is not None:

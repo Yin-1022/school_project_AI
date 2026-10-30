@@ -21,10 +21,12 @@ class HitReactionController:
         self,
         visible: bool,
         recovery_active: bool,
+        verify_pending: bool,
     ) -> None:
         if (
             not visible
             and not recovery_active
+            and not verify_pending
             and self.attempts < self.max_attempts
         ):
             self.pending = True
