@@ -1,5 +1,7 @@
+import pytest
+
 from runtime.stuck_recovery import RecoveryStage, StuckRecoveryController
-from runtime.types import RuntimeAction, ActionSource
+from runtime.types import ExecutionEndReason, ExecutionResult, RuntimeAction, ActionSource
 
 
 def test_next_action_does_not_change_stage():
@@ -238,6 +240,143 @@ def test_policy_action_used_for_verification():
 
     assert controller.verify_pending is False
     assert controller.verify_action is None
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        ExecutionEndReason.START_TIMEOUT,
+        ExecutionEndReason.END_TIMEOUT,
+    ],
+)
+def test_search_turn_timeout_enters_evade_pending(reason):
+    controller = StuckRecoveryController()
+    controller.on_cantmove(None)
+
+    turn = controller.next_action()
+    assert turn is not None
+    controller.on_action_sent(turn)
+    assert controller.stage == RecoveryStage.TURN_EXECUTING
+
+    result = ExecutionResult(action=turn, reason=reason)
+    controller.on_action_failed(result)
+
+    assert controller.stage == RecoveryStage.EVADE_PENDING
+    assert controller.turn_failed is False
+    assert controller.verify_pending is False
+    assert controller.verify_action is None
+
+    evade = controller.next_action()
+    assert evade is not None
+    assert evade.name == "EvadeBack"
+    assert evade.source == ActionSource.RUNTIME_RECOVERY
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        ExecutionEndReason.START_TIMEOUT,
+        ExecutionEndReason.END_TIMEOUT,
+    ],
+)
+def test_evade_back_timeout_ends_recovery(reason):
+    controller = StuckRecoveryController()
+    controller.on_cantmove(None)
+
+    turn = controller.next_action()
+    assert turn is not None
+    controller.on_action_sent(turn)
+    controller.on_cantmove(turn)
+    controller.on_action_finished(turn)
+
+    assert controller.stage == RecoveryStage.EVADE_PENDING
+
+    evade = controller.next_action()
+    assert evade is not None
+    controller.on_action_sent(evade)
+    assert controller.stage == RecoveryStage.EVADE_EXECUTING
+
+    controller.on_action_failed(ExecutionResult(evade, reason))
+
+    assert controller.stage == RecoveryStage.IDLE
+    assert controller.next_action() is None
+    assert controller.verify_pending is False
+    assert controller.turn_failed is False
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        ExecutionEndReason.START_TIMEOUT,
+        ExecutionEndReason.END_TIMEOUT,
+    ],
+)
+def test_policy_verification_timeout_clears_verification(reason):
+    controller = StuckRecoveryController()
+    controller.on_cantmove(None)
+
+    turn = controller.next_action()
+    assert turn is not None
+    controller.on_action_sent(turn)
+    controller.on_action_finished(turn)
+
+    assert controller.stage == RecoveryStage.IDLE
+    assert controller.verify_pending
+
+    policy = RuntimeAction(
+        "Advance", 0.0, ActionSource.POLICY
+    )
+    controller.on_action_sent(policy)
+    assert controller.verify_action == "Advance"
+
+    original_sign = controller.turn_sign
+    controller.on_action_failed(ExecutionResult(policy, reason))
+
+    assert controller.stage == RecoveryStage.IDLE
+    assert controller.verify_pending is False
+    assert controller.verify_action is None
+    assert controller.turn_sign == original_sign
+
+
+def test_unrelated_timeout_does_not_change_recovery():
+    controller = StuckRecoveryController()
+    controller.on_cantmove(None)
+
+    turn = controller.next_action()
+    assert turn is not None
+    controller.on_action_sent(turn)
+
+    unrelated = RuntimeAction(
+        "Advance", 0.0, ActionSource.POLICY
+    )
+    controller.on_action_failed(
+        ExecutionResult(
+            unrelated,
+            ExecutionEndReason.START_TIMEOUT,
+        )
+    )
+
+    assert controller.stage == RecoveryStage.TURN_EXECUTING
+    assert controller.turn_failed is False
+
+
+def test_non_timeout_failure_does_not_change_recovery():
+    controller = StuckRecoveryController()
+    controller.on_cantmove(None)
+
+    turn = controller.next_action()
+    assert turn is not None
+    controller.on_action_sent(turn)
+
+    controller.on_action_failed(
+        ExecutionResult(
+            turn,
+            ExecutionEndReason.REJECTED,
+        )
+    )
+
+    assert controller.stage == RecoveryStage.TURN_EXECUTING
+
 
 
 def test_reset():

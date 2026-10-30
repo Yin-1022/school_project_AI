@@ -114,6 +114,80 @@ def test_SearchTurn_from_other_sources():
     assert controller.attempts == 0
 
 
+def test_cancel_pending_hit_reaction():
+    controller = HitReactionController()
+
+    controller.on_boss_hit(
+        visible=False,
+        recovery_active=False,
+        verify_pending=False,
+    )
+    assert controller.pending
+
+    controller.cancel_pending()
+
+    assert controller.pending is False
+    assert controller.next_action() is None
+
+
+def test_cancel_pending_preserves_attempts():
+    controller = HitReactionController(max_attempts=2)
+
+    controller.on_boss_hit(
+        visible=False,
+        recovery_active=False,
+        verify_pending=False,
+    )
+    action = controller.next_action()
+    assert action is not None
+
+    controller.on_action_sent(action)
+    assert controller.attempts == 1
+
+    controller.on_boss_hit(
+        visible=False,
+        recovery_active=False,
+        verify_pending=False,
+    )
+    assert controller.pending
+
+    controller.cancel_pending()
+
+    assert controller.pending is False
+    assert controller.attempts == 1
+
+
+def test_hit_reaction_blocked_during_verification():
+    controller = HitReactionController()
+
+    controller.on_boss_hit(
+        visible=False,
+        recovery_active=False,
+        verify_pending=True,
+    )
+
+    assert controller.pending is False
+    assert controller.next_action() is None
+    assert controller.attempts == 0
+
+
+def test_hit_reaction_allowed_when_recovery_inactive():
+    controller = HitReactionController()
+
+    controller.on_boss_hit(
+        visible=False,
+        recovery_active=False,
+        verify_pending=False,
+    )
+
+    action = controller.next_action()
+
+    assert action is not None
+    assert action.name == "SearchTurn"
+    assert action.value == 135.0
+    assert action.source == ActionSource.RUNTIME_HIT_REACTION
+
+
 def test_reset():
     controller = HitReactionController(turn_angle=135.0, max_attempts=2)
 

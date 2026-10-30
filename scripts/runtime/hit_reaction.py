@@ -21,7 +21,7 @@ class HitReactionController:
         self,
         visible: bool,
         recovery_active: bool,
-        verify_pending: bool,
+        verify_pending: bool = False,
     ) -> None:
         if (
             not visible

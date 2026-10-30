@@ -81,7 +81,7 @@ class RuntimeController:
         self.hit_reaction.on_boss_hit(
             visible=visible,
             recovery_active=(
-                self.recovery.stage != RecoveryStage.IDLE,
+                self.recovery.stage != RecoveryStage.IDLE
             ),
             verify_pending=self.recovery.verify_pending,
         )

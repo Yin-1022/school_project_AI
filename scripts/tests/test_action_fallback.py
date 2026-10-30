@@ -148,6 +148,38 @@ def test_no_clean_after_sending_non_fallback_action():
     assert controller.pending is True
 
 
+def test_cancel_fallback_pending_and_rejected_action():
+    controller = ActionFallbackController(fallback_value=1.0)
+
+    strafe = RuntimeAction(
+        "StrafeLeft",
+        0.0,
+        ActionSource.POLICY,
+    )
+
+    assert controller.on_notseeplayer(strafe)
+    assert controller.pending
+    assert controller.rejected_action == strafe
+
+    controller.cancel_pending()
+
+    assert controller.pending is False
+    assert controller.rejected_action is None
+    assert controller.next_action() is None
+    assert controller.fallback_value == 1.0
+
+
+def test_cancel_fallback_is_idempotent():
+    controller = ActionFallbackController()
+
+    controller.cancel_pending()
+    controller.cancel_pending()
+
+    assert controller.pending is False
+    assert controller.rejected_action is None
+    assert controller.next_action() is None
+
+
 def test_reset():
     controller = ActionFallbackController(fallback_value=1.0)
 
