@@ -39,6 +39,10 @@ class ActionFallbackController:
             self.pending = False
             self.rejected_action = None
 
+    def cancel_pending(self) -> None:
+        self.pending = False
+        self.rejected_action = None
+
     def reset(self) -> None:
         self.pending = False
         self.rejected_action = None

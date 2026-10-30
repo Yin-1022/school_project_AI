@@ -1,5 +1,6 @@
 from enum import Enum
-from .types import RuntimeAction, ActionSource
+from .types import ExecutionEndReason, RuntimeAction, ActionSource
+from .execution import ExecutionResult
 
 class RecoveryStage(str, Enum):
     IDLE = "idle"
@@ -123,6 +124,42 @@ class StuckRecoveryController:
             self.verify_pending = False
             self.verify_action = None
             self.turn_sign *= -1
+
+
+    def on_action_failed(self, result: ExecutionResult) -> None:
+        if result.reason == ExecutionEndReason.START_TIMEOUT or result.reason == ExecutionEndReason.END_TIMEOUT:
+            if self.stage == RecoveryStage.TURN_EXECUTING:
+                if (
+                    result.action.name == "SearchTurn"
+                    and result.action.source == ActionSource.RUNTIME_RECOVERY
+                ):
+                    self.stage = RecoveryStage.EVADE_PENDING
+                    self.turn_failed = False
+                    self.verify_pending = False
+                    self.verify_action = None
+                    return
+
+            if self.stage == RecoveryStage.EVADE_EXECUTING:
+                if (
+                    result.action.name == "EvadeBack"
+                    and result.action.source == ActionSource.RUNTIME_RECOVERY
+                ):
+                    self.stage = RecoveryStage.IDLE
+                    self.turn_failed = False
+                    self.verify_pending = False
+                    self.verify_action = None
+                    return
+
+            if self.stage == RecoveryStage.IDLE and self.verify_pending:
+                if (
+                    result.action.source == ActionSource.POLICY
+                    and self.verify_action is not None
+                    and result.action.name == self.verify_action
+                ):
+                    self.verify_pending = False
+                    self.verify_action = None
+
+        return
 
 
     def reset(self) -> None:

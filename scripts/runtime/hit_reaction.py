@@ -48,6 +48,9 @@ class HitReactionController:
         self.pending = False
         self.attempts += 1
 
+    def cancel_pending(self) -> None:
+        self.pending = False
+
     def reset(self) -> None:
         self.attempts = 0
         self.pending = False

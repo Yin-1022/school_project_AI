@@ -97,11 +97,17 @@ class RuntimeController:
 
         return self.execution.abort(ExecutionEndReason.REJECTED)
 
-    def check_timeouts(
-        self,
-        now: float | None = None,
-    ) -> ExecutionResult | None:
-        return self.execution.check_timeout(now=now)
+    def tick(self, now: float | None = None) -> ExecutionResult | None:
+        result = self.execution.check_timeout(now=now)
+
+        if result is not None:
+            if result.reason in {
+                ExecutionEndReason.START_TIMEOUT,
+                ExecutionEndReason.END_TIMEOUT,
+            }:
+                self.recovery.on_action_failed(result)
+
+        return result
 
     def reset(self) -> None:
         self.execution.reset()
