@@ -40,6 +40,9 @@ from constant import (
 from behavior_policy import compute_behavior_probs
 from episode_metrics import EpisodeMetrics, EpisodeEventAudit, PendingCombatEvents, attribute_combat_events, format_summary
 from ground_truth_audit import GroundTruthAudit, format_gt_summary
+from runtime.controller import RuntimeController
+from runtime.types import RuntimeAction, ActionSource, ExecutionEndReason
+from runtime.adapters.impala_adapter import to_runtime_action, to_osc_payload
 
 # RAW_DIR = Path("data/raw_videos")
 # video_path = RAW_DIR / "raw_video_4_t.mp4"
@@ -117,6 +120,7 @@ def main(config: ActorConfig):
 
         vis_state = None                    
         pol_state = policy_init() 
+        runtime = RuntimeController()
 
         frame_ring_buffer = collections.deque(maxlen=CLIP_FRAMES)
         pushed_frames = 0
@@ -129,9 +133,6 @@ def main(config: ActorConfig):
         recovery_turn_failed = False
         recovery_verify_pending = False
         recovery_verify_action = None
-        execution_action = None
-        execution_started_at = None
-        execution_sent_at = None
         hit_turn_pending = False
         hit_turn_attempts = 0
         terminal_handled = False
@@ -147,9 +148,7 @@ def main(config: ActorConfig):
                 episode_done_now = False
                 episode_result_now = 0
 
-                execution_action = None
-                execution_sent_at = None
-                execution_started_at = None
+                runtime.reset()
 
                 recovery_active = False
                 recovery_stage = 0
@@ -249,9 +248,7 @@ def main(config: ActorConfig):
                 recovery_verify_action = None
                 recovery_turn_sign = 1
 
-                execution_action = None
-                execution_sent_at = None
-                execution_started_at = None
+                runtime.reset()
 
                 force_decision = False
 
@@ -352,9 +349,7 @@ def main(config: ActorConfig):
                 recovery_turn_failed = False
                 recovery_verify_pending = False
                 recovery_verify_action = None
-                execution_action = None
-                execution_sent_at = None
-                execution_started_at = None
+                runtime.reset()
                 force_decision = False
                 hit_turn_pending = False
                 hit_turn_attempts = 0
@@ -423,6 +418,18 @@ def main(config: ActorConfig):
                 UE_EVENT_STATE["act_end_pulse"] = False
                 UE_EVENT_STATE["cantmove_pulse"] = False
 
+            if ue_act_start_now:
+                runtime.on_action_start()
+
+            if cantmove_now:
+                runtime.on_cant_move()
+
+            if ue_act_end_now:
+                result = runtime.on_action_end()
+
+                if result is not None:
+                    force_decision = True
+
             if cantmove_now:
 
                 #正在 Recovery SearchTurn
@@ -452,6 +459,8 @@ def main(config: ActorConfig):
                     print("[recovery] cantmove -> SearchTurn queued")
 
             now = monotonic()
+
+            runtime.tick(now=now)
 
             if execution_action is not None:
 
@@ -753,6 +762,14 @@ def main(config: ActorConfig):
                     action_client=action_client,
                 )
 
+                runtime.on_action_sent(
+                    RuntimeAction(
+                        "Advance",
+                        0.0,
+                        ActionSource.RUNTIME_FALLBACK,
+                    )
+                )
+
                 execution_action = "Advance"
                 execution_sent_at = monotonic()
                 execution_started_at = None
@@ -806,6 +823,14 @@ def main(config: ActorConfig):
                         action_client=action_client,
                     )
 
+                    runtime.on_action_sent(
+                        RuntimeAction(
+                            "SearchTurn",
+                            recovery_angle,
+                            ActionSource.RECOVERY,
+                        )
+                    )
+
                     execution_action = "SearchTurn"
                     execution_sent_at = monotonic()
                     execution_started_at = None
@@ -847,6 +872,14 @@ def main(config: ActorConfig):
                     send_action(
                         {"action": "EvadeBack"},
                         action_client=action_client,
+                    )
+
+                    runtime.on_action_sent(
+                        RuntimeAction(
+                            "EvadeBack",
+                            0.0,
+                            ActionSource.RUNTIME_RECOVERY,
+                        )
                     )
 
                     execution_action = "EvadeBack"
@@ -893,6 +926,14 @@ def main(config: ActorConfig):
                         "angle": 135.0,
                     },
                     action_client=action_client,
+                )
+
+                runtime.on_action_sent(
+                    RuntimeAction(
+                        "SearchTurn",
+                        135.0,
+                        ActionSource.HIT_REACTION,
+                    )
                 )
 
                 execution_action = "SearchTurn"
@@ -1067,6 +1108,14 @@ def main(config: ActorConfig):
                     policy_step=loaded_step,
                 )
             send_action(jsonMsg, action_client=action_client)
+
+            runtime.on_action_sent(
+                RuntimeAction(
+                    action,
+                    0.0,
+                    ActionSource.POLICY,
+                )
+            )
 
             execution_action = action
             execution_sent_at = monotonic()
