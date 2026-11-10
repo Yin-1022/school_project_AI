@@ -41,7 +41,7 @@ from behavior_policy import compute_behavior_probs
 from episode_metrics import EpisodeMetrics, EpisodeEventAudit, PendingCombatEvents, attribute_combat_events, format_summary
 from ground_truth_audit import GroundTruthAudit, format_gt_summary
 from runtime.controller import RuntimeController
-from runtime.types import RuntimeAction, ActionSource, ExecutionEndReason
+from runtime.types import ExecutionResult, RuntimeAction, ActionSource, ExecutionEndReason
 from runtime.adapters.impala_adapter import to_runtime_action, to_osc_payload
 
 # RAW_DIR = Path("data/raw_videos")
@@ -127,9 +127,6 @@ def main(config: ActorConfig):
         recv_frames = 0
         sample_every = 1
         decision_count = 0
-        execution_action = None
-        execution_started_at = None
-        execution_sent_at = None
         recovery_active = False
         recovery_stage = 0
         recovery_turn_sign = 1
@@ -140,8 +137,6 @@ def main(config: ActorConfig):
         hit_turn_attempts = 0
         terminal_handled = False
         force_decision = False
-        ACTION_START_TIMEOUT_SEC = 1.0
-        ACTION_END_TIMEOUT_SEC = 5.0
         global SEQ
 
         print("ACTION_MASK_MODE: ", ACTION_MASK_MODE)
@@ -152,9 +147,6 @@ def main(config: ActorConfig):
                 episode_result_now = 0
 
                 runtime.reset()
-                execution_action = None
-                execution_sent_at = None
-                execution_started_at = None
 
                 recovery_active = False
                 recovery_stage = 0
@@ -255,9 +247,6 @@ def main(config: ActorConfig):
                 recovery_turn_sign = 1
 
                 runtime.reset()
-                execution_action = None
-                execution_sent_at = None
-                execution_started_at = None
 
                 force_decision = False
 
@@ -359,9 +348,6 @@ def main(config: ActorConfig):
                 recovery_verify_pending = False
                 recovery_verify_action = None
                 runtime.reset()
-                execution_action = None
-                execution_sent_at = None
-                execution_started_at = None
                 force_decision = False
                 hit_turn_pending = False
                 hit_turn_attempts = 0
@@ -431,6 +417,8 @@ def main(config: ActorConfig):
                 UE_EVENT_STATE["cantmove_pulse"] = False
 
             expired_attacks = runtime.attack.check_timeouts(now=monotonic())
+            current_action = runtime.execution.state.current_action
+            current_name = current_action.name if current_action else None
 
             for attack in expired_attacks:
                 print(f"[attack watchdog] {attack} timeout -> auto unfreeze")
@@ -438,7 +426,7 @@ def main(config: ActorConfig):
             if cantmove_now:
 
                 #正在 Recovery SearchTurn
-                if (recovery_active and recovery_stage == 2 and execution_action == "SearchTurn"):
+                if (recovery_active and recovery_stage == 2 and current_name == "SearchTurn"):
                     recovery_turn_failed = True
 
                     print("[recovery] turn failed -> EvadeBack required")
@@ -447,7 +435,7 @@ def main(config: ActorConfig):
                 elif (
                     recovery_verify_pending
                     and recovery_verify_action is not None
-                    and execution_action == recovery_verify_action
+                    and current_name == recovery_verify_action
                 ):
                     recovery_verify_pending = False
                     recovery_verify_action = None
@@ -463,77 +451,70 @@ def main(config: ActorConfig):
 
                     print("[recovery] cantmove -> SearchTurn queued")
 
+            # =====================================
+            # Shared Runtime Execution Lifecycle
+            # =====================================
             now = monotonic()
 
-            if execution_action is not None:
+            # Action Start
+            if ue_act_start_now:
+                runtime.on_action_started()
 
-                if ue_act_start_now and execution_started_at is None:
-                    execution_started_at = now
-                    print(f"[execution] {execution_action} started")
+            # Action End
+            if ue_act_end_now:
+                result = runtime.on_action_ended()
 
-                if ue_act_end_now:
-                    print(f"[execution] {execution_action} finished by /actend")
+                if result is not None:
+                    finished_action = result.action.name
 
-                    finished_action = execution_action
-                    if recovery_verify_pending and recovery_verify_action == finished_action:
+                    print(
+                        f"[execution] {finished_action} finished by /actend"
+                    )
+
+                    # 暫時保留舊 Recovery Verification
+                    if (
+                        recovery_verify_pending
+                        and recovery_verify_action == finished_action
+                    ):
                         recovery_verify_pending = False
                         recovery_verify_action = None
                         recovery_turn_sign *= -1
 
+                    # 保留 Ground Truth Audit 的原始 Policy Name
                     with UE_EVENT_LOCK:
-                        ground_truth_audit.finish_action(
-                            finished_action
+                        audit_action = (
+                            ground_truth_audit.current.action
+                            if ground_truth_audit.current is not None
+                            else finished_action
                         )
-
-                    execution_action = None
-                    execution_sent_at = None
-                    execution_started_at = None
+                        ground_truth_audit.finish_action(audit_action)
 
                     force_decision = True
 
-                elif (
-                    execution_started_at is not None
-                    and now - execution_started_at >= ACTION_END_TIMEOUT_SEC
-                ):
+            # Execution Timeout
+            timeout_result = runtime.tick(now=now)
+
+            if timeout_result is not None:
+                if timeout_result.reason in {
+                    ExecutionEndReason.START_TIMEOUT,
+                    ExecutionEndReason.END_TIMEOUT,
+                }:
                     print(
-                        f"[execution watchdog] {execution_action} "
-                        f"no /actend for {ACTION_END_TIMEOUT_SEC:.1f}s -> release"
+                        f"[execution watchdog] "
+                        f"{timeout_result.action.name} "
+                        f"{timeout_result.reason.value}"
                     )
 
                     with UE_EVENT_LOCK:
                         ground_truth_audit.abort_action(
-                            "actend_timeout"
+                            timeout_result.reason.value
                         )
-
-                    execution_action = None
-                    execution_sent_at = None
-                    execution_started_at = None
-
-                    force_decision = True
-
-                elif (
-                    execution_started_at is None
-                    and execution_sent_at is not None
-                    and now - execution_sent_at >= ACTION_START_TIMEOUT_SEC
-                ):
-                    print(
-                        f"[execution watchdog] {execution_action} "
-                        "no /actstart -> release"
-                    )
-
-                    with UE_EVENT_LOCK:
-                        ground_truth_audit.abort_action(
-                            "actstart_timeout"
-                        )
-
-                    execution_action = None
-                    execution_sent_at = None
-                    execution_started_at = None
 
                     force_decision = True
 
             if len(frame_ring_buffer) < CLIP_FRAMES:
                 continue
+
             if (not force_decision) and (pushed_frames % CLIP_STRIDE != 0):
                 continue
             force_decision = False
@@ -722,15 +703,13 @@ def main(config: ActorConfig):
 
                 continue
 
-            if (notseeplayer and execution_action in {"StrafeLeft", "StrafeRight"}):
-                rejected_action = execution_action
+            if (runtime.execution.state.current_action in {"StrafeLeft", "StrafeRight"}):
+                rejected_result = runtime.on_notseeplayer()
 
-                print(f"[execution fallback] {rejected_action} rejected by /notseeplayer -> Advance")
-
-                # 原本 Strafe 根本沒有真正執行
-                execution_action = None
-                execution_sent_at = None
-                execution_started_at = None
+                if rejected_result.reason != ExecutionEndReason.REJECTED:
+                    continue
+                    
+                print(f"[execution fallback] {runtime.execution.state.current_action} rejected by /notseeplayer -> Advance")
 
                 # 這筆不能當成「Strafe 被成功執行」拿去訓練
                 if last_step_cache is not None:
@@ -766,15 +745,12 @@ def main(config: ActorConfig):
                         source=ActionSource.RUNTIME_FALLBACK,
                     ),
                     action_client,
+                    runtime
                 )
-
-                execution_action = "Advance"
-                execution_sent_at = monotonic()
-                execution_started_at = None
 
                 continue
 
-            if execution_action is not None:
+            if not runtime.execution.can_send():
                 continue
 
             if runtime.attack.is_attacking():
@@ -823,11 +799,8 @@ def main(config: ActorConfig):
                             source=ActionSource.RUNTIME_RECOVERY,
                         ),
                         action_client,
+                        runtime
                     )
-
-                    execution_action = "SearchTurn"
-                    execution_sent_at = monotonic()
-                    execution_started_at = None
 
                     recovery_stage = 2
                     print(f"[recovery] try SearchTurn {recovery_angle:+.0f}")
@@ -870,11 +843,8 @@ def main(config: ActorConfig):
                             source=ActionSource.RUNTIME_RECOVERY,
                         ),
                         action_client,
+                        runtime
                     )
-
-                    execution_action = "EvadeBack"
-                    execution_sent_at = monotonic()
-                    execution_started_at = None
 
                     recovery_stage = 4
 
@@ -917,11 +887,8 @@ def main(config: ActorConfig):
                         source=ActionSource.RUNTIME_HIT_REACTION,
                     ),
                     action_client,
+                    runtime
                 )
-
-                execution_action = "SearchTurn"
-                execution_sent_at = monotonic()
-                execution_started_at = None
 
                 hit_turn_pending = False
                 hit_turn_attempts += 1
@@ -1093,17 +1060,14 @@ def main(config: ActorConfig):
             send_runtime_action(
                 to_runtime_action(action),
                 action_client,
+                runtime
             )
 
-            execution_action = action
-            execution_sent_at = monotonic()
-            execution_started_at = None
-
-            if recovery_verify_pending and execution_action in {"Advance", "StrafeLeft", "StrafeRight"}:
-                recovery_verify_action = execution_action
+            if recovery_verify_pending and action in {"Advance", "StrafeLeft", "StrafeRight"}:
+                recovery_verify_action = action
 
             print(
-                f"[execution] sent {execution_action}, waiting for /actstart"
+                f"[execution] sent {action}, waiting for /actstart"
             )
 
             if POLICY_MODE == "impala":
@@ -1316,9 +1280,10 @@ def capture_terminal_combat_state(event_audit, pending_combat):
         "final_boss_health": final_boss_health
     }
 
-def send_runtime_action(action: RuntimeAction, action_client) -> None:
+def send_runtime_action(action: RuntimeAction, action_client, runtime: RuntimeController) -> None:
     payload = to_osc_payload(action)
     send_action(payload, action_client=action_client)
+    runtime.on_action_sent(action)
 
 # def save_teacher_sample(frames, extra, action_name, frame_id_end):
 #     out_dir = Path("data/teacher_samples")
