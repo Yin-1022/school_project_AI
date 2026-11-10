@@ -762,6 +762,7 @@ def main(config: ActorConfig):
                 send_runtime_action(
                     RuntimeAction(
                         name="Advance",
+                        value=0.0,
                         source=ActionSource.RUNTIME_FALLBACK,
                     ),
                     action_client,
@@ -865,6 +866,7 @@ def main(config: ActorConfig):
                     send_runtime_action(
                         RuntimeAction(
                             name="EvadeBack",
+                            value=0.0,
                             source=ActionSource.RUNTIME_RECOVERY,
                         ),
                         action_client,
@@ -1089,10 +1091,7 @@ def main(config: ActorConfig):
                     policy_step=loaded_step,
                 )
             send_runtime_action(
-                RuntimeAction(
-                    name=action,
-                    source=ActionSource.RUNTIME_POLICY,
-                ),
+                to_runtime_action(action),
                 action_client,
             )
 
@@ -1318,7 +1317,7 @@ def capture_terminal_combat_state(event_audit, pending_combat):
     }
 
 def send_runtime_action(action: RuntimeAction, action_client) -> None:
-    payload = to_runtime_action(action)
+    payload = to_osc_payload(action)
     send_action(payload, action_client=action_client)
 
 # def save_teacher_sample(frames, extra, action_name, frame_id_end):
