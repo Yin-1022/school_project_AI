@@ -759,9 +759,12 @@ def main(config: ActorConfig):
                         policy_step=loaded_step,
                     )
 
-                send_action(
-                    {"action": "Advance"},
-                    action_client=action_client,
+                send_runtime_action(
+                    RuntimeAction(
+                        name="Advance",
+                        source=ActionSource.RUNTIME_FALLBACK,
+                    ),
+                    action_client,
                 )
 
                 execution_action = "Advance"
@@ -812,9 +815,13 @@ def main(config: ActorConfig):
                     )
 
                     recovery_angle = 90.0 * recovery_turn_sign
-                    send_action(
-                        {"action": "SearchTurn", "angle": recovery_angle,},
-                        action_client=action_client,
+                    send_runtime_action(
+                        RuntimeAction(
+                            name="SearchTurn",
+                            value=recovery_angle,
+                            source=ActionSource.RUNTIME_RECOVERY,
+                        ),
+                        action_client,
                     )
 
                     execution_action = "SearchTurn"
@@ -855,9 +862,12 @@ def main(config: ActorConfig):
                             policy_step=loaded_step,
                         )
                         
-                    send_action(
-                        {"action": "EvadeBack"},
-                        action_client=action_client,
+                    send_runtime_action(
+                        RuntimeAction(
+                            name="EvadeBack",
+                            source=ActionSource.RUNTIME_RECOVERY,
+                        ),
+                        action_client,
                     )
 
                     execution_action = "EvadeBack"
@@ -898,12 +908,13 @@ def main(config: ActorConfig):
                         policy_step=loaded_step,
                     )
 
-                send_action(
-                    {
-                        "action": "SearchTurn",
-                        "angle": 135.0,
-                    },
-                    action_client=action_client,
+                send_runtime_action(
+                    RuntimeAction(
+                        name="SearchTurn",
+                        value=135.0,
+                        source=ActionSource.RUNTIME_HIT_REACTION,
+                    ),
+                    action_client,
                 )
 
                 execution_action = "SearchTurn"
@@ -1077,7 +1088,13 @@ def main(config: ActorConfig):
                     frame_id_end=frame_id_end,
                     policy_step=loaded_step,
                 )
-            send_action(jsonMsg, action_client=action_client)
+            send_runtime_action(
+                RuntimeAction(
+                    name=action,
+                    source=ActionSource.RUNTIME_POLICY,
+                ),
+                action_client,
+            )
 
             execution_action = action
             execution_sent_at = monotonic()
@@ -1299,6 +1316,10 @@ def capture_terminal_combat_state(event_audit, pending_combat):
         "final_player_health": final_player_health,
         "final_boss_health": final_boss_health
     }
+
+def send_runtime_action(action: RuntimeAction, action_client) -> None:
+    payload = to_runtime_action(action)
+    send_action(payload, action_client=action_client)
 
 # def save_teacher_sample(frames, extra, action_name, frame_id_end):
 #     out_dir = Path("data/teacher_samples")
