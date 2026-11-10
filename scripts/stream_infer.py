@@ -703,13 +703,23 @@ def main(config: ActorConfig):
 
                 continue
 
-            if (runtime.execution.state.current_action in {"StrafeLeft", "StrafeRight"}):
+            current_action = runtime.execution.state.current_action
+
+            if (
+                notseeplayer
+                and current_action is not None
+                and current_action.source == ActionSource.POLICY
+                and current_action.name in {"StrafeLeft", "StrafeRight"}
+            ):
                 rejected_result = runtime.on_notseeplayer()
 
-                if rejected_result.reason != ExecutionEndReason.REJECTED:
-                    continue
-                    
-                print(f"[execution fallback] {runtime.execution.state.current_action} rejected by /notseeplayer -> Advance")
+                assert rejected_result is not None
+                assert rejected_result.reason == ExecutionEndReason.REJECTED
+
+                print(
+                    f"[execution fallback] {rejected_result.action.name} "
+                    "rejected by /notseeplayer -> Advance"
+                )
 
                 # 這筆不能當成「Strafe 被成功執行」拿去訓練
                 if last_step_cache is not None:
