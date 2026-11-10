@@ -430,6 +430,11 @@ def main(config: ActorConfig):
                 UE_EVENT_STATE["act_end_pulse"] = False
                 UE_EVENT_STATE["cantmove_pulse"] = False
 
+            expired_attacks = runtime.attack.check_timeouts(now=monotonic())
+
+            for attack in expired_attacks:
+                print(f"[attack watchdog] {attack} timeout -> auto unfreeze")
+
             if cantmove_now:
 
                 #正在 Recovery SearchTurn
@@ -581,24 +586,6 @@ def main(config: ActorConfig):
             now = monotonic()
 
             with UE_EVENT_LOCK:
-                if (
-                    UE_EVENT_STATE["att1_active"]
-                    and UE_EVENT_STATE["att1_deadline"] is not None
-                    and now >= UE_EVENT_STATE["att1_deadline"]
-                ):
-                    UE_EVENT_STATE["att1_active"] = False
-                    UE_EVENT_STATE["att1_deadline"] = None
-                    print("[attack watchdog] att1 timeout -> auto unfreeze")
-
-                if (
-                    UE_EVENT_STATE["att2_active"]
-                    and UE_EVENT_STATE["att2_deadline"] is not None
-                    and now >= UE_EVENT_STATE["att2_deadline"]
-                ):
-                    UE_EVENT_STATE["att2_active"] = False
-                    UE_EVENT_STATE["att2_deadline"] = None
-                    print("[attack watchdog] att2 timeout -> auto unfreeze")
-
                 ue_att1_active = UE_EVENT_STATE["att1_active"]
                 ue_att1_start = UE_EVENT_STATE["att1_start_pulse"]
                 ue_att1_end = UE_EVENT_STATE["att1_end_pulse"]
@@ -622,6 +609,23 @@ def main(config: ActorConfig):
                 UE_EVENT_STATE["att2_end_pulse"] = False
                 UE_EVENT_STATE["notseeplayer_pulse"] = False
                 pending_combat.reset()
+
+            for attack_type, started, ended, active in [
+                ("att1", ue_att1_start, ue_att1_end, ue_att1_active),
+                ("att2", ue_att2_start, ue_att2_end, ue_att2_active),
+            ]:
+                if started and ended:
+                    # 同一批次同時收到 start/end，依最後 active 狀態決定結果
+                    if active:
+                        runtime.on_attack_end(attack_type)
+                        runtime.on_attack_start(attack_type)
+                    else:
+                        runtime.on_attack_start(attack_type)
+                        runtime.on_attack_end(attack_type)
+                elif started:
+                    runtime.on_attack_start(attack_type)
+                elif ended:
+                    runtime.on_attack_end(attack_type)
 
             if last_step_cache is not None:
                 last_step_cache["ue_player_hit_count"] += ue_player_hit_count
@@ -769,7 +773,7 @@ def main(config: ActorConfig):
             if execution_action is not None:
                 continue
 
-            if ue_att1_active or ue_att2_active:
+            if runtime.attack.is_attacking():
                 print(f"[decision freeze] attack_active=1 at t={frame_id_end:05d}, skip new inference")
                 continue
 
