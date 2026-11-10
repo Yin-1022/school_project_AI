@@ -137,6 +137,7 @@ def main(config: ActorConfig):
         hit_turn_attempts = 0
         terminal_handled = False
         force_decision = False
+        pending_rejection_result = None
         global SEQ
 
         print("ACTION_MASK_MODE: ", ACTION_MASK_MODE)
@@ -147,6 +148,7 @@ def main(config: ActorConfig):
                 episode_result_now = 0
 
                 runtime.reset()
+                pending_rejection_result = None
 
                 recovery_active = False
                 recovery_stage = 0
@@ -247,6 +249,7 @@ def main(config: ActorConfig):
                 recovery_turn_sign = 1
 
                 runtime.reset()
+                pending_rejection_result = None
 
                 force_decision = False
 
@@ -347,6 +350,7 @@ def main(config: ActorConfig):
                 recovery_turn_failed = False
                 recovery_verify_pending = False
                 recovery_verify_action = None
+                pending_rejection_result = None
                 runtime.reset()
                 force_decision = False
                 hit_turn_pending = False
@@ -411,10 +415,12 @@ def main(config: ActorConfig):
                 ue_act_start_now = UE_EVENT_STATE["act_start_pulse"]
                 ue_act_end_now = UE_EVENT_STATE["act_end_pulse"]
                 cantmove_now = UE_EVENT_STATE["cantmove_pulse"]
+                notseeplayer_now = UE_EVENT_STATE["notseeplayer_pulse"]
 
                 UE_EVENT_STATE["act_start_pulse"] = False
                 UE_EVENT_STATE["act_end_pulse"] = False
                 UE_EVENT_STATE["cantmove_pulse"] = False
+                UE_EVENT_STATE["notseeplayer_pulse"] = False
 
             expired_attacks = runtime.attack.check_timeouts(now=monotonic())
             current_action = runtime.execution.state.current_action
@@ -460,8 +466,27 @@ def main(config: ActorConfig):
             if ue_act_start_now:
                 runtime.on_action_started()
 
+            # Strafe Rejection
+            rejected_this_poll = False
+
+            if notseeplayer_now:
+                rejected_result = runtime.on_notseeplayer()
+
+                if (
+                    rejected_result is not None
+                    and rejected_result.reason == ExecutionEndReason.REJECTED
+                ):
+                    pending_rejection_result = rejected_result
+                    rejected_this_poll = True
+                    force_decision = True
+
+                    print(
+                        f"[execution] {rejected_result.action.name} "
+                        "rejected by /notseeplayer"
+                    )
+
             # Action End
-            if ue_act_end_now:
+            if ue_act_end_now and not rejected_this_poll:
                 result = runtime.on_action_ended()
 
                 if result is not None:
@@ -581,14 +606,12 @@ def main(config: ActorConfig):
                 ue_player_damage = pending_combat.player_damage
                 ue_episode_done = UE_EVENT_STATE["episode_done_flag"]
                 ue_episode_result = UE_EVENT_STATE["episode_result"]
-                notseeplayer = UE_EVENT_STATE["notseeplayer_pulse"]
 
                 # pulse 讀完就清掉
                 UE_EVENT_STATE["att1_start_pulse"] = False
                 UE_EVENT_STATE["att1_end_pulse"] = False
                 UE_EVENT_STATE["att2_start_pulse"] = False
                 UE_EVENT_STATE["att2_end_pulse"] = False
-                UE_EVENT_STATE["notseeplayer_pulse"] = False
                 pending_combat.reset()
 
             for attack_type, started, ended, active in [
@@ -705,20 +728,13 @@ def main(config: ActorConfig):
 
             current_action = runtime.execution.state.current_action
 
-            if (
-                notseeplayer
-                and current_action is not None
-                and current_action.source == ActionSource.POLICY
-                and current_action.name in {"StrafeLeft", "StrafeRight"}
-            ):
-                rejected_result = runtime.on_notseeplayer()
-
-                assert rejected_result is not None
-                assert rejected_result.reason == ExecutionEndReason.REJECTED
+            if pending_rejection_result is not None:
+                rejected_result = pending_rejection_result
+                pending_rejection_result = None
 
                 print(
                     f"[execution fallback] {rejected_result.action.name} "
-                    "rejected by /notseeplayer -> Advance"
+                    "rejected -> Advance"
                 )
 
                 # 這筆不能當成「Strafe 被成功執行」拿去訓練
