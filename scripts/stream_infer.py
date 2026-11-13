@@ -595,8 +595,6 @@ def main(config: ActorConfig):
                 event_audit.unattributed_boss_damage_to_player += ue_player_damage
 
             if pending_rejection_result is not None:
-                if not runtime.can_send():
-                    continue
 
                 rejected_result = pending_rejection_result
                 pending_rejection_result = None
@@ -821,37 +819,6 @@ def main(config: ActorConfig):
                 behavior_probs = np.zeros(len(ACTION_ID_TO_NAME),dtype=np.float32)
                 behavior_probs[ACTION_NAME_TO_ID[action]] = 1.0
 
-            last_step_cache = {
-                "frames": frames,
-                "extra": extra_tensor,
-                "logits": logits_for_log,
-                "probs": probs_for_log,
-                "behavior_probs": behavior_probs,
-
-                "proposed_action": proposed_action,
-                "final_action": action,
-
-                "info": info,
-                "pol_state": dict(pol_state),
-
-                "frame_id_end": frame_id_end,
-                "fire_frame": fire_frame,
-
-                "ue_att1_start": False,
-                "ue_att1_end": False,
-                "ue_att2_start": False,
-                "ue_att2_end": False,
-                "ue_boss_hit_count": 0,
-                "ue_player_hit_count": 0,
-                "ue_boss_damage": 0,
-                "ue_player_damage": 0,
-                "ue_episode_done": False,
-                "ue_episode_result": 0,
-
-                "action_mask": action_mask.copy(),
-                "actor_policy_step": loaded_step,
-            }
-
             print(
                 f"[t={frame_id_end:05d}] "
                 f"presence={presence_prob:.2f} "
@@ -908,6 +875,37 @@ def main(config: ActorConfig):
                 or selected_action.source != ActionSource.POLICY
             ):
                 raise RuntimeError("Policy dispatch was unexpectedly preempted")
+
+            last_step_cache = {
+                "frames": frames,
+                "extra": extra_tensor,
+                "logits": logits_for_log,
+                "probs": probs_for_log,
+                "behavior_probs": behavior_probs,
+
+                "proposed_action": proposed_action,
+                "final_action": action,
+
+                "info": info,
+                "pol_state": dict(pol_state),
+
+                "frame_id_end": frame_id_end,
+                "fire_frame": fire_frame,
+
+                "ue_att1_start": False,
+                "ue_att1_end": False,
+                "ue_att2_start": False,
+                "ue_att2_end": False,
+                "ue_boss_hit_count": 0,
+                "ue_player_hit_count": 0,
+                "ue_boss_damage": 0,
+                "ue_player_damage": 0,
+                "ue_episode_done": False,
+                "ue_episode_result": 0,
+
+                "action_mask": action_mask.copy(),
+                "actor_policy_step": loaded_step,
+            }
 
             send_runtime_action(
                 selected_action,

@@ -223,6 +223,8 @@ def send_action(msg, action_client=None):
     elif action_name == "PatrolStepLeft":
         action_name = "PatrolStep"
         angle = -50.0
+    elif action_name == "PatrolStep" and "angle" in msg:
+        angle = float(msg["angle"])
 
     args = [
         action_name,                              # string
