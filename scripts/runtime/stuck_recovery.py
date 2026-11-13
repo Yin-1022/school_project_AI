@@ -84,6 +84,7 @@ class StuckRecoveryController:
             self.stage == RecoveryStage.IDLE
             and self.verify_pending
             and action.source == ActionSource.POLICY
+            and action.name in {"Advance", "StrafeLeft", "StrafeRight"}
             and self.verify_action is None
         ):
             self.verify_action = action.name
@@ -158,6 +159,10 @@ class StuckRecoveryController:
                 ):
                     self.verify_pending = False
                     self.verify_action = None
+        elif result.reason == ExecutionEndReason.REJECTED:
+            if result.action.name == self.verify_action:
+                self.verify_pending = False
+                self.verify_action = None
 
         return
 

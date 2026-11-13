@@ -102,7 +102,10 @@ class RuntimeController:
         if not rejected:
             return None
 
-        return self.execution.abort(ExecutionEndReason.REJECTED)
+        result = self.execution.abort(ExecutionEndReason.REJECTED)
+        self.recovery.on_action_failed(result)
+
+        return result
 
     def tick(self, now: float | None = None) -> ExecutionResult | None:
         if now is None:

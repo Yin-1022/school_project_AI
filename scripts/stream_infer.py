@@ -127,14 +127,6 @@ def main(config: ActorConfig):
         recv_frames = 0
         sample_every = 1
         decision_count = 0
-        recovery_active = False
-        recovery_stage = 0
-        recovery_turn_sign = 1
-        recovery_turn_failed = False
-        recovery_verify_pending = False
-        recovery_verify_action = None
-        hit_turn_pending = False
-        hit_turn_attempts = 0
         terminal_handled = False
         force_decision = False
         pending_rejection_result = None
@@ -149,9 +141,6 @@ def main(config: ActorConfig):
 
                 runtime.reset()
                 pending_rejection_result = None
-
-                recovery_active = False
-                recovery_stage = 0
 
                 # 給 OSC callback 一點時間把 terminal result 寫進 shared state
                 for _ in range(10):   # 最多等 10 * 0.02 = 0.2 秒
@@ -241,20 +230,10 @@ def main(config: ActorConfig):
                 pushed_frames = 0
                 recv_frames = 0
 
-                recovery_active = False
-                recovery_stage = 0
-                recovery_turn_failed = False
-                recovery_verify_pending = False
-                recovery_verify_action = None
-                recovery_turn_sign = 1
-
                 runtime.reset()
                 pending_rejection_result = None
 
                 force_decision = False
-
-                hit_turn_pending = False
-                hit_turn_attempts = 0
 
                 terminal_handled = False
 
@@ -345,16 +324,9 @@ def main(config: ActorConfig):
 
                 pushed_frames = 0
                 recv_frames = 0
-                recovery_active = False
-                recovery_stage = 0
-                recovery_turn_failed = False
-                recovery_verify_pending = False
-                recovery_verify_action = None
                 pending_rejection_result = None
                 runtime.reset()
                 force_decision = False
-                hit_turn_pending = False
-                hit_turn_attempts = 0
                 terminal_handled = False
                 episode_metrics = EpisodeMetrics(actor_id=config.actor_id)
                 with UE_EVENT_LOCK:
@@ -429,34 +401,6 @@ def main(config: ActorConfig):
             for attack in expired_attacks:
                 print(f"[attack watchdog] {attack} timeout -> auto unfreeze")
 
-            if cantmove_now:
-
-                #正在 Recovery SearchTurn
-                if (recovery_active and recovery_stage == 2 and current_name == "SearchTurn"):
-                    recovery_turn_failed = True
-
-                    print("[recovery] turn failed -> EvadeBack required")
-
-                #正在驗證 SearchTurn 後的第一個 movement
-                elif (
-                    recovery_verify_pending
-                    and recovery_verify_action is not None
-                    and current_name == recovery_verify_action
-                ):
-                    recovery_verify_pending = False
-                    recovery_verify_action = None
-
-                    recovery_active = True
-                    recovery_stage = 3  # 直接 EvadeBack
-
-                #一般情況
-                elif not recovery_active:
-                    recovery_active = True
-                    recovery_stage = 1
-                    recovery_turn_failed = False
-
-                    print("[recovery] cantmove -> SearchTurn queued")
-
             # =====================================
             # Shared Runtime Execution Lifecycle
             # =====================================
@@ -485,6 +429,10 @@ def main(config: ActorConfig):
                         "rejected by /notseeplayer"
                     )
 
+            if cantmove_now and not rejected_this_poll:
+                runtime.on_cantmove()
+                force_decision = True
+
             # Action End
             if ue_act_end_now and not rejected_this_poll:
                 result = runtime.on_action_ended()
@@ -495,15 +443,6 @@ def main(config: ActorConfig):
                     print(
                         f"[execution] {finished_action} finished by /actend"
                     )
-
-                    # 暫時保留舊 Recovery Verification
-                    if (
-                        recovery_verify_pending
-                        and recovery_verify_action == finished_action
-                    ):
-                        recovery_verify_pending = False
-                        recovery_verify_action = None
-                        recovery_turn_sign *= -1
 
                     # 保留 Ground Truth Audit 的原始 Policy Name
                     with UE_EVENT_LOCK:
@@ -585,8 +524,7 @@ def main(config: ActorConfig):
                 frame_id_end=frame_id_end,
             )
 
-            if info["visible"] == 1:
-                hit_turn_attempts = 0
+            runtime.on_visibility_updated(bool(info["visible"]))
 
             extra_tensor = build_extra_tensor(info, pol_state, frame_id_end)
             now = monotonic()
@@ -655,7 +593,36 @@ def main(config: ActorConfig):
                 event_audit.unattributed_boss_hits_on_player += ue_player_hit_count
                 event_audit.unattributed_player_damage_to_boss += ue_boss_damage
                 event_audit.unattributed_boss_damage_to_player += ue_player_damage
-                
+
+            if pending_rejection_result is not None:
+                if not runtime.can_send():
+                    continue
+
+                rejected_result = pending_rejection_result
+                pending_rejection_result = None
+
+                print(
+                    f"[execution fallback] {rejected_result.action.name} "
+                    "rejected -> Advance"
+                )
+
+                # 這筆不能當成「Strafe 被成功執行」拿去訓練
+                if last_step_cache is not None:
+                    attribute_combat_events(
+                        last_step_cache=None,
+                        event_audit=event_audit,
+                        boss_hit_count=last_step_cache["ue_boss_hit_count"],
+                        player_hit_count=last_step_cache["ue_player_hit_count"],
+                        boss_damage=last_step_cache["ue_boss_damage"],
+                        player_damage=last_step_cache["ue_player_damage"],
+                    )
+                last_step_cache = None
+
+                # 改由 runtime fallback 執行 Advance
+                with UE_EVENT_LOCK:
+                    ground_truth_audit.abort_action(
+                        "notseeplayer_rejected"
+                    )
             
             if ue_att1_start:
                 print("[UE event] boss normal attack start")
@@ -667,13 +634,7 @@ def main(config: ActorConfig):
                 print("[UE event] boss skill attack1 end")
             if ue_boss_hit_count>0:
                 print(f"[UE event] boss hit x {ue_boss_hit_count}")
-
-                if (info["visible"] == 0 and not recovery_active and hit_turn_attempts < 2):
-                        hit_turn_pending = True
-
-                        print("[hit reaction] boss hit while player unseen -> queue SearchTurn +135")
-                else:
-                    hit_turn_pending = False
+                runtime.on_boss_hit(visible=bool(info["visible"]))
             if ue_player_hit_count>0:
                 print(f"[UE event] player hit x {ue_player_hit_count}")
             if ue_episode_done and not terminal_handled:
@@ -728,59 +689,12 @@ def main(config: ActorConfig):
 
             current_action = runtime.execution.state.current_action
 
-            if pending_rejection_result is not None:
-                rejected_result = pending_rejection_result
-                pending_rejection_result = None
-
-                print(
-                    f"[execution fallback] {rejected_result.action.name} "
-                    "rejected -> Advance"
-                )
-
-                # 這筆不能當成「Strafe 被成功執行」拿去訓練
-                if last_step_cache is not None:
-                    attribute_combat_events(
-                        last_step_cache=None,
-                        event_audit=event_audit,
-                        boss_hit_count=last_step_cache["ue_boss_hit_count"],
-                        player_hit_count=last_step_cache["ue_player_hit_count"],
-                        boss_damage=last_step_cache["ue_boss_damage"],
-                        player_damage=last_step_cache["ue_player_damage"],
+            if not runtime.can_send():
+                if runtime.attack.is_attacking():
+                    print(
+                        f"[decision freeze] attack_active=1 "
+                        f"at t={frame_id_end:05d}, skip new inference"
                     )
-                last_step_cache = None
-
-                # 改由 runtime fallback 執行 Advance
-                with UE_EVENT_LOCK:
-                    ground_truth_audit.abort_action(
-                        "notseeplayer_rejected"
-                    )
-
-                    ground_truth_audit.begin_action(
-                        action="Advance",
-                        source="runtime_fallback",
-                        pred_visible=int(info["visible"]),
-                        presence_prob=float(presence_prob),
-                        frame_id_end=frame_id_end,
-                        policy_step=loaded_step,
-                    )
-
-                send_runtime_action(
-                    RuntimeAction(
-                        name="Advance",
-                        value=0.0,
-                        source=ActionSource.RUNTIME_FALLBACK,
-                    ),
-                    action_client,
-                    runtime
-                )
-
-                continue
-
-            if not runtime.execution.can_send():
-                continue
-
-            if runtime.attack.is_attacking():
-                print(f"[decision freeze] attack_active=1 at t={frame_id_end:05d}, skip new inference")
                 continue
 
             if last_step_cache is not None:
@@ -801,105 +715,21 @@ def main(config: ActorConfig):
                         terminal_anchor_cache,
                     )
 
-            # =========================
-            # Stuck Recovery Controller
-            # =========================
-            if recovery_active:
-                # Stage 1: SearchTurn first
-                if recovery_stage == 1:
-                    with UE_EVENT_LOCK:
-                        ground_truth_audit.begin_action(
-                        action="SearchTurn",
-                        source="recovery",
-                        pred_visible=int(info["visible"]),
-                        presence_prob=float(presence_prob),
-                        frame_id_end=frame_id_end,
-                        policy_step=loaded_step,
-                    )
+ 
+            # Shared Runtime Pending Actions
+            runtime_action = runtime.next_action()
 
-                    recovery_angle = 90.0 * recovery_turn_sign
-                    send_runtime_action(
-                        RuntimeAction(
-                            name="SearchTurn",
-                            value=recovery_angle,
-                            source=ActionSource.RUNTIME_RECOVERY,
-                        ),
-                        action_client,
-                        runtime
-                    )
+            if runtime_action is not None:
+                source_map = {
+                    ActionSource.RUNTIME_RECOVERY: "recovery",
+                    ActionSource.RUNTIME_FALLBACK: "runtime_fallback",
+                    ActionSource.RUNTIME_HIT_REACTION: "hit_reaction",
+                }
 
-                    recovery_stage = 2
-                    print(f"[recovery] try SearchTurn {recovery_angle:+.0f}")
-                    continue
-
-                # Stage 2: Fallback if SearchTurn failed
-                if recovery_stage == 2:
-                    if recovery_turn_failed:
-                        recovery_stage = 3
-
-                        print("[recovery] turn failed -> fallback EvadeBack")
-
-                    else:
-                        recovery_active = False
-                        recovery_stage = 0
-                        recovery_turn_failed = False
-
-                        recovery_verify_pending = True
-                        recovery_verify_action = None
-
-                        print("[recovery] SearchTurn finished -> waiting for movement verification")
-                    continue
-
-                # Stage 3: EvadeBack
-                if recovery_stage == 3:
-                    with UE_EVENT_LOCK:
-                        ground_truth_audit.begin_action(
-                            action="EvadeBack",
-                            source="recovery",
-                            pred_visible=int(info["visible"]),
-                            presence_prob=float(presence_prob),
-                            frame_id_end=frame_id_end,
-                            policy_step=loaded_step,
-                        )
-                        
-                    send_runtime_action(
-                        RuntimeAction(
-                            name="EvadeBack",
-                            value=0.0,
-                            source=ActionSource.RUNTIME_RECOVERY,
-                        ),
-                        action_client,
-                        runtime
-                    )
-
-                    recovery_stage = 4
-
-                    print(
-                        "[recovery] fallback -> EvadeBack"
-                    )
-                    continue
-
-                # Stage 4: Wait for EvadeBack to finish
-                if recovery_stage == 4:
-
-                    recovery_active = False
-                    recovery_stage = 0
-                    recovery_turn_failed = False
-
-                    print(
-                        "[recovery] EvadeBack finished -> return control to policy"
-                    )
-
-                    continue
-
-            # =========================
-            # Hit Reaction Controller
-            # =========================
-            if hit_turn_pending:
                 with UE_EVENT_LOCK:
                     ground_truth_audit.begin_action(
-                        action="SearchTurn",
-                        source="hit_reaction",
+                        action=runtime_action.name,
+                        source=source_map[runtime_action.source],
                         pred_visible=int(info["visible"]),
                         presence_prob=float(presence_prob),
                         frame_id_end=frame_id_end,
@@ -907,21 +737,9 @@ def main(config: ActorConfig):
                     )
 
                 send_runtime_action(
-                    RuntimeAction(
-                        name="SearchTurn",
-                        value=135.0,
-                        source=ActionSource.RUNTIME_HIT_REACTION,
-                    ),
+                    runtime_action,
                     action_client,
-                    runtime
-                )
-
-                hit_turn_pending = False
-                hit_turn_attempts += 1
-
-                print(
-                    f"[hit reaction] SearchTurn +135 "
-                    f"(attempt {hit_turn_attempts}/2)"
+                    runtime,
                 )
 
                 continue
@@ -1083,14 +901,19 @@ def main(config: ActorConfig):
                     frame_id_end=frame_id_end,
                     policy_step=loaded_step,
                 )
-            send_runtime_action(
-                to_runtime_action(action),
-                action_client,
-                runtime
-            )
+            selected_action = runtime.next_action(to_runtime_action(action))
 
-            if recovery_verify_pending and action in {"Advance", "StrafeLeft", "StrafeRight"}:
-                recovery_verify_action = action
+            if (
+                selected_action is None
+                or selected_action.source != ActionSource.POLICY
+            ):
+                raise RuntimeError("Policy dispatch was unexpectedly preempted")
+
+            send_runtime_action(
+                selected_action,
+                action_client,
+                runtime,
+            )
 
             print(
                 f"[execution] sent {action}, waiting for /actstart"
