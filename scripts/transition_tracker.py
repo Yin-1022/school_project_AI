@@ -7,7 +7,7 @@ from episode_metrics import (
 )
 from rollout_logger import append_cached_step, flush_rollout_buffer
 from reward_priority import resolve_priority_reward
-
+from runtime.types import ActionSource, RuntimeAction
 
 class TransitionTracker:
     """IMPALA transition state owner."""
@@ -93,8 +93,31 @@ class TransitionTracker:
             player_damage=snapshot["pending_player_damage"],
         )
 
-    def discard_rejected_policy(self) -> None:
+    def discard_rejected_policy(
+        self,
+        expected_action: RuntimeAction | None = None,
+    ) -> None:
         cache = self._last_step_cache
+
+        if expected_action is not None:
+            if (
+                expected_action.source != ActionSource.POLICY
+                or expected_action.name not in {"StrafeLeft", "StrafeRight"}
+            ):
+                raise ValueError(
+                    f"Invalid rejected action: {expected_action}"
+                )
+
+            if (
+                cache is not None
+                and cache["final_action"] != expected_action.name
+            ):
+                raise RuntimeError(
+                    "Rejected action/cache mismatch: "
+                    f"runtime={expected_action.name}, "
+                    f"cache={cache['final_action']}"
+                )
+
         if cache is None:
             return
 

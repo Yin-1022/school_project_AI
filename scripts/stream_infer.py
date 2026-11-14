@@ -37,7 +37,7 @@ from constant import (
 from behavior_policy import compute_behavior_probs
 from episode_metrics import EpisodeEventAudit, PendingCombatEvents
 from ground_truth_audit import GroundTruthAudit
-from episode_finalizer import finalize_episode
+from impala_event_coordinator import handle_rejection_pulse, finalize_terminal_episode
 from transition_tracker import TransitionTracker
 from runtime.controller import RuntimeController
 from runtime.types import ExecutionResult, RuntimeAction, ActionSource, ExecutionEndReason
@@ -129,7 +129,6 @@ def main(config: ActorConfig):
         decision_count = 0
         terminal_handled = False
         force_decision = False
-        pending_rejection_result = None
         global SEQ
 
         print("ACTION_MASK_MODE: ", ACTION_MASK_MODE)
@@ -138,9 +137,6 @@ def main(config: ActorConfig):
             if frame is None:
                 episode_done_now = False
                 episode_result_now = 0
-
-                runtime.reset()
-                pending_rejection_result = None
 
                 # 給 OSC callback 一點時間把 terminal result 寫進 shared state
                 for _ in range(10):   # 最多等 10 * 0.02 = 0.2 秒
@@ -151,24 +147,23 @@ def main(config: ActorConfig):
                         break
                     time.sleep(0.02)
 
-                if episode_done_now and not terminal_handled:
+                if episode_done_now and episode_result_now in (-1, 1) and not terminal_handled:
                     print("[UE event] episode done (disconnect terminal append)")
 
-                    finalize_episode(
+                    finalize_terminal_episode(
+                        runtime=runtime,
                         tracker=tracker,
                         event_audit=event_audit,
                         pending_combat=pending_combat,
                         ground_truth_audit=ground_truth_audit,
                         event_lock=UE_EVENT_LOCK,
+                        event_state=UE_EVENT_STATE,
                         episode_result=episode_result_now,
                         policy_step=loaded_step,
                     )
 
                     terminal_handled = True
                     tracker.clear_pending()
-                    with UE_EVENT_LOCK:
-                        UE_EVENT_STATE["episode_done_flag"] = False
-                        UE_EVENT_STATE["episode_result"] = 0
                 else:
                     tracker.drop_buffer_on_disconnect()
 
@@ -197,7 +192,6 @@ def main(config: ActorConfig):
                 recv_frames = 0
 
                 runtime.reset()
-                pending_rejection_result = None
 
                 force_decision = False
 
@@ -228,22 +222,20 @@ def main(config: ActorConfig):
                 if episode_started:
                     UE_EVENT_STATE["episode_start_pulse"] = False
 
-            if episode_done and episode_result and not terminal_handled:
+            if episode_done and episode_result in (-1, 1) and not terminal_handled:
 
-                finalize_episode(
+                finalize_terminal_episode(
+                    runtime=runtime,
                     tracker=tracker,
                     event_audit=event_audit,
                     pending_combat=pending_combat,
                     ground_truth_audit=ground_truth_audit,
                     event_lock=UE_EVENT_LOCK,
-                    episode_result=episode_result_now,
+                    event_state=UE_EVENT_STATE,
+                    episode_result=episode_result,
                     policy_step=loaded_step,
                 )
                 terminal_handled = True
-
-                with UE_EVENT_LOCK:
-                    UE_EVENT_STATE["episode_done_flag"] = False
-                    UE_EVENT_STATE["episode_result"] = 0
 
             if episode_started:
                 print("[episode] New episode started, resetting runtime state")
@@ -255,7 +247,6 @@ def main(config: ActorConfig):
 
                 pushed_frames = 0
                 recv_frames = 0
-                pending_rejection_result = None
                 runtime.reset()
                 force_decision = False
                 terminal_handled = False
@@ -338,25 +329,18 @@ def main(config: ActorConfig):
             # Action Start
             if ue_act_start_now:
                 runtime.on_action_started()
+            
+            # Strafe rejection is reconciled immediately.
+            rejected_this_poll = handle_rejection_pulse(
+                pulse=notseeplayer_now,
+                runtime=runtime,
+                tracker=tracker,
+                ground_truth_audit=ground_truth_audit,
+                event_lock=UE_EVENT_LOCK,
+            )
 
-            # Strafe Rejection
-            rejected_this_poll = False
-
-            if notseeplayer_now:
-                rejected_result = runtime.on_notseeplayer()
-
-                if (
-                    rejected_result is not None
-                    and rejected_result.reason == ExecutionEndReason.REJECTED
-                ):
-                    pending_rejection_result = rejected_result
-                    rejected_this_poll = True
-                    force_decision = True
-
-                    print(
-                        f"[execution] {rejected_result.action.name} "
-                        "rejected by /notseeplayer"
-                    )
+            if rejected_this_poll:
+                force_decision = True
 
             if cantmove_now and not rejected_this_poll:
                 runtime.on_cantmove()
@@ -505,25 +489,6 @@ def main(config: ActorConfig):
                 episode_done=ue_episode_done,
                 episode_result=ue_episode_result,
             )
-
-            if pending_rejection_result is not None:
-
-                rejected_result = pending_rejection_result
-                pending_rejection_result = None
-
-                print(
-                    f"[execution fallback] {rejected_result.action.name} "
-                    "rejected -> Advance"
-                )
-
-                # 這筆不能當成「Strafe 被成功執行」拿去訓練
-                tracker.discard_rejected_policy()
-
-                # 改由 runtime fallback 執行 Advance
-                with UE_EVENT_LOCK:
-                    ground_truth_audit.abort_action(
-                        "notseeplayer_rejected"
-                    )
             
             if ue_att1_start:
                 print("[UE event] boss normal attack start")
@@ -538,23 +503,21 @@ def main(config: ActorConfig):
                 runtime.on_boss_hit(visible=bool(info["visible"]))
             if ue_player_hit_count>0:
                 print(f"[UE event] player hit x {ue_player_hit_count}")
-            if ue_episode_done and not terminal_handled:
+            if ue_episode_done and ue_episode_result in (-1, 1) and not terminal_handled:
                 print("[UE event] episode done")
 
-                finalize_episode(
+                finalize_terminal_episode(
+                    runtime=runtime,
                     tracker=tracker,
                     event_audit=event_audit,
                     pending_combat=pending_combat,
                     ground_truth_audit=ground_truth_audit,
                     event_lock=UE_EVENT_LOCK,
-                    episode_result=episode_result_now,
+                    event_state=UE_EVENT_STATE,
+                    episode_result=ue_episode_result,
                     policy_step=loaded_step,
                 )
                 terminal_handled = True
-
-                with UE_EVENT_LOCK:
-                    UE_EVENT_STATE["episode_done_flag"] = False
-                    UE_EVENT_STATE["episode_result"] = 0
 
                 continue
 
