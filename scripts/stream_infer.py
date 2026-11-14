@@ -446,12 +446,7 @@ def main(config: ActorConfig):
 
                     # 保留 Ground Truth Audit 的原始 Policy Name
                     with UE_EVENT_LOCK:
-                        audit_action = (
-                            ground_truth_audit.current.action
-                            if ground_truth_audit.current is not None
-                            else finished_action
-                        )
-                        ground_truth_audit.finish_action(audit_action)
+                        ground_truth_audit.finish_action(result.action)
 
                     force_decision = True
 
@@ -728,6 +723,7 @@ def main(config: ActorConfig):
                     ground_truth_audit.begin_action(
                         action=runtime_action.name,
                         source=source_map[runtime_action.source],
+                        expected_runtime_action=runtime_action,
                         pred_visible=int(info["visible"]),
                         presence_prob=float(presence_prob),
                         frame_id_end=frame_id_end,
@@ -859,15 +855,6 @@ def main(config: ActorConfig):
                 "seq": SEQ
             }
 
-            with UE_EVENT_LOCK:
-                ground_truth_audit.begin_action(
-                    action=action,
-                    source="policy",
-                    pred_visible=int(info["visible"]),
-                    presence_prob=float(presence_prob),
-                    frame_id_end=frame_id_end,
-                    policy_step=loaded_step,
-                )
             selected_action = runtime.next_action(to_runtime_action(action))
 
             if (
@@ -875,6 +862,17 @@ def main(config: ActorConfig):
                 or selected_action.source != ActionSource.POLICY
             ):
                 raise RuntimeError("Policy dispatch was unexpectedly preempted")
+
+            with UE_EVENT_LOCK:
+                ground_truth_audit.begin_action(
+                    action=action,
+                    source="policy",
+                    expected_runtime_action=selected_action,
+                    pred_visible=int(info["visible"]),
+                    presence_prob=float(presence_prob),
+                    frame_id_end=frame_id_end,
+                    policy_step=loaded_step,
+                )
 
             last_step_cache = {
                 "frames": frames,

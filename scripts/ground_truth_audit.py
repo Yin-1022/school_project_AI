@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from collections import Counter
+from runtime.types import RuntimeAction
 
 EPS = 1e-3
 MOVEMENT_ACTIONS = {
@@ -23,6 +24,7 @@ SEARCH_ACTIONS = {
 class GroundTruthActionRecord:
     action: str
     source: str
+    expected_runtime_action: RuntimeAction | None = None
 
     pred_visible: int | None = None
     presence_prob: float | None = None
@@ -47,7 +49,16 @@ class GroundTruthAudit:
     unmatched_distance: int = 0
     action_mismatch: int = 0
 
-    def begin_action(self, action: str, source: str, pred_visible: int | None = None, presence_prob: float | None = None, frame_id_end: int | None = None, policy_step: int | None = None):
+    def begin_action(
+            self, 
+            action: str, 
+            source: str, 
+            pred_visible: int | None = None, 
+            presence_prob: float | None = None, 
+            frame_id_end: int | None = None, 
+            policy_step: int | None = None, 
+            expected_runtime_action: RuntimeAction | None = None,
+    ):
         if self.current is not None:
             self.action_mismatch += 1
             self.current.completed = False
@@ -56,6 +67,7 @@ class GroundTruthAudit:
         self.current = GroundTruthActionRecord(
             action=action,
             source=source,
+            expected_runtime_action=expected_runtime_action,
             pred_visible=pred_visible,
             presence_prob=presence_prob,
             frame_id_end=frame_id_end,
@@ -82,19 +94,38 @@ class GroundTruthAudit:
         if self.current.action in MOVEMENT_ACTIONS:
             self.current.gt_distance_end = distance
 
-    def finish_action(self, action: str):
+    def finish_action(self, action: str | RuntimeAction):
         if self.current is None:
             self.action_mismatch += 1
             return
-        if self.current.action != action:
+
+        current = self.current
+
+        if isinstance(action, RuntimeAction):
+            expected = current.expected_runtime_action
+            matched = (
+                expected is not None
+                and expected == action
+            )
+        else:
+            # 相容舊版純字串 Audit 呼叫。
+            # 已綁定 RuntimeAction 的紀錄不能退回字串自我驗證。
+            expected = current.action
+            matched = (
+                current.expected_runtime_action is None
+                and expected == action
+            )
+
+        if not matched:
             self.action_mismatch += 1
-            self.current.completed = False
-            self.current.aborted_reason = f"finish mismatch: expected={self.current.action}, got={action}"
-            self.records.append(self.current)
-            self.current = None
-            return
-        self.current.completed = True
-        self.records.append(self.current)
+            current.completed = False
+            current.aborted_reason = (
+                f"finish mismatch: expected={expected}, got={action}"
+            )
+        else:
+            current.completed = True
+
+        self.records.append(current)
         self.current = None
 
     def abort_action(self, reason: str):
