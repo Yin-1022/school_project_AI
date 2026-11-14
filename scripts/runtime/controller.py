@@ -1,19 +1,29 @@
 from time import monotonic
+from collections.abc import Mapping
 from .execution import ExecutionController
 from .attack import AttackGuard
 from .stuck_recovery import RecoveryStage, StuckRecoveryController
 from .hit_reaction import HitReactionController
 from .action_fallback import ActionFallbackController
 from .types import RuntimeAction, ExecutionResult, ExecutionEndReason, ActionSource
+from .adapters.factory import create_adapter
 
 
 class RuntimeController:
-    def __init__(self) -> None:
+    def __init__(self, model: str="IMPALA", *, action_values: Mapping[str, float] | None = None,) -> None:
+        self.model = model
+        self.adapter = create_adapter(model, action_values=action_values)
         self.execution = ExecutionController()
         self.attack = AttackGuard()
         self.recovery = StuckRecoveryController()
         self.hit_reaction = HitReactionController()
         self.fallback = ActionFallbackController()
+
+    def policy_action(self, action_name: str) -> RuntimeAction:
+        return self.adapter.to_runtime_action(action_name)
+
+    def osc_payload(self, action: RuntimeAction):
+        return self.adapter.to_osc_payload(action)
 
     def can_send(self) -> bool:
         return (

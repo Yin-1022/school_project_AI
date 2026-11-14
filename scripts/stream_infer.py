@@ -120,7 +120,7 @@ def main(config: ActorConfig):
 
         vis_state = None                    
         pol_state = policy_init() 
-        runtime = RuntimeController()
+        runtime = RuntimeController(model="IMPALA")
 
         frame_ring_buffer = collections.deque(maxlen=CLIP_FRAMES)
         pushed_frames = 0
