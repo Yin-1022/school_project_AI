@@ -22,14 +22,11 @@ from presence_inference import (
     infer_player_presence,
 )
 from action_postprocess import apply_action_with_state
-from rollout_logger import append_cached_step, flush_rollout_buffer
-from reward_priority import resolve_priority_reward
 import threading
 import time
 from time import monotonic
 from constant import (
     ACTION_ID_TO_NAME,
-    ROLLOUT_SAVE_EVERY,
     POLICY_MODE,
     ACTION_MASK_MODE,
     PLAYER_MAX_HP,
@@ -38,8 +35,9 @@ from constant import (
     ACTOR_CHECKPOINT_PATH
 )
 from behavior_policy import compute_behavior_probs
-from episode_metrics import EpisodeMetrics, EpisodeEventAudit, PendingCombatEvents, attribute_combat_events, format_summary
+from episode_metrics import EpisodeEventAudit, PendingCombatEvents, format_summary
 from ground_truth_audit import GroundTruthAudit, format_gt_summary
+from transition_tracker import TransitionTracker
 from runtime.controller import RuntimeController
 from runtime.types import ExecutionResult, RuntimeAction, ActionSource, ExecutionEndReason
 from runtime.adapters.impala_adapter import to_runtime_action, to_osc_payload
@@ -81,9 +79,7 @@ PRESENCE_RECORD_MODE = True
 PRESENCE_VIDEO_DIR = Path("data/presence_videos")
 
 def main(config: ActorConfig):
-    rollout_buffer = []
-    last_step_cache = None
-    terminal_anchor_cache = None
+    tracker = None
     video_writer = None
     reconnect_pending = False
     
@@ -105,7 +101,6 @@ def main(config: ActorConfig):
             host=config.ue_host,
             action_port=config.action_port,
         )
-        episode_metrics = EpisodeMetrics(actor_id=config.actor_id)
         event_audit = EpisodeEventAudit(player_max_hp=PLAYER_MAX_HP, boss_max_hp=BOSS_MAX_HP)
         pending_combat = PendingCombatEvents()
         ground_truth_audit = GroundTruthAudit()
@@ -156,14 +151,7 @@ def main(config: ActorConfig):
 
                     terminal_combat_state = capture_terminal_combat_state(event_audit, pending_combat)
 
-                    attribute_combat_events(
-                        last_step_cache=last_step_cache,
-                        event_audit=event_audit,
-                        boss_hit_count=terminal_combat_state["pending_boss_hits"],
-                        player_hit_count=terminal_combat_state["pending_player_hits"],
-                        boss_damage=terminal_combat_state["pending_boss_damage"],
-                        player_damage=terminal_combat_state["pending_player_damage"],
-                    )
+                    tracker.record_terminal_combat(terminal_combat_state)
 
                     event_audit_snapshot = {
                         "player_hits_on_boss_raw":terminal_combat_state["raw_player_hits_on_boss"],
@@ -181,32 +169,23 @@ def main(config: ActorConfig):
                     }
 
                     finalize_episode(
-                        rollout_buffer=rollout_buffer,
-                        last_step_cache=last_step_cache,
-                        terminal_anchor_cache=terminal_anchor_cache,
-                        episode_metrics=episode_metrics,
+                        tracker=tracker,
                         event_audit=event_audit_snapshot,
                         ground_truth_audit=ground_truth_audit,
-                        actor_id=config.actor_id,
                         episode_result=episode_result_now,
                         policy_step=loaded_step,
                     )
 
                     terminal_handled = True
-                    last_step_cache = None
-                    terminal_anchor_cache = None
+                    tracker.clear_pending()
                     with UE_EVENT_LOCK:
                         UE_EVENT_STATE["episode_done_flag"] = False
                         UE_EVENT_STATE["episode_result"] = 0
                 else:
-                    if rollout_buffer:
-                        print(
-                            f"[rollout] dropping {len(rollout_buffer)} steps "
-                            "on disconnect without terminal result"
-                        )
-                        rollout_buffer.clear()
+                    tracker.drop_buffer_on_disconnect()
+
                     if not terminal_handled:
-                        episode_metrics = EpisodeMetrics(actor_id=config.actor_id)
+                        tracker.reset_episode_state()
 
                         with UE_EVENT_LOCK:
                             event_audit.reset()
@@ -214,8 +193,7 @@ def main(config: ActorConfig):
                             ground_truth_audit.reset()
 
                 print("[stream] disconnected, waiting for UE reconnect")
-                last_step_cache = None
-                terminal_anchor_cache = None
+                tracker.clear_pending()
                 reconnect_pending = True
                 continue
 
@@ -237,9 +215,7 @@ def main(config: ActorConfig):
 
                 terminal_handled = False
 
-                episode_metrics = EpisodeMetrics(
-                    actor_id=config.actor_id
-                )
+                tracker.reset_episode_state()
 
                 with UE_EVENT_LOCK:
                     event_audit.reset()
@@ -253,9 +229,6 @@ def main(config: ActorConfig):
                     UE_EVENT_LOCK=UE_EVENT_LOCK,
                     UE_EVENT_STATE=UE_EVENT_STATE,
                 )
-
-                last_step_cache = None
-                terminal_anchor_cache = None
 
                 reconnect_pending = False
 
@@ -271,14 +244,7 @@ def main(config: ActorConfig):
 
                 terminal_combat_state = capture_terminal_combat_state(event_audit, pending_combat)
 
-                attribute_combat_events(
-                    last_step_cache=last_step_cache,
-                    event_audit=event_audit,
-                    boss_hit_count=terminal_combat_state["pending_boss_hits"],
-                    player_hit_count=terminal_combat_state["pending_player_hits"],
-                    boss_damage=terminal_combat_state["pending_boss_damage"],
-                    player_damage=terminal_combat_state["pending_player_damage"]
-                )
+                tracker.record_terminal_combat(terminal_combat_state)
 
                 event_audit_snapshot = {
                     "player_hits_on_boss_raw":terminal_combat_state["raw_player_hits_on_boss"],
@@ -296,19 +262,13 @@ def main(config: ActorConfig):
                 }
 
                 finalize_episode(
-                    rollout_buffer=rollout_buffer,
-                    last_step_cache=last_step_cache,
-                    terminal_anchor_cache=terminal_anchor_cache,
-                    episode_metrics=episode_metrics,
+                    tracker=tracker,
                     event_audit=event_audit_snapshot,
                     ground_truth_audit=ground_truth_audit,
-                    actor_id=config.actor_id,
                     episode_result=episode_result,
                     policy_step=loaded_step,
                 )
                 terminal_handled = True
-                last_step_cache = None
-                terminal_anchor_cache = None
 
                 with UE_EVENT_LOCK:
                     UE_EVENT_STATE["episode_done_flag"] = False
@@ -328,14 +288,12 @@ def main(config: ActorConfig):
                 runtime.reset()
                 force_decision = False
                 terminal_handled = False
-                episode_metrics = EpisodeMetrics(actor_id=config.actor_id)
+                tracker.reset_episode_state()
+
                 with UE_EVENT_LOCK:
                     event_audit.reset()
                     pending_combat.reset()
                     ground_truth_audit.reset()
-
-                last_step_cache = None
-                terminal_anchor_cache = None
 
                 reset_ue_episode_state(UE_EVENT_LOCK=UE_EVENT_LOCK, UE_EVENT_STATE=UE_EVENT_STATE)
             elif terminal_handled:
@@ -564,30 +522,18 @@ def main(config: ActorConfig):
                 elif ended:
                     runtime.on_attack_end(attack_type)
 
-            if last_step_cache is not None:
-                last_step_cache["ue_player_hit_count"] += ue_player_hit_count
-                last_step_cache["ue_boss_hit_count"] += ue_boss_hit_count
-                last_step_cache["ue_player_damage"] += ue_player_damage
-                last_step_cache["ue_boss_damage"] += ue_boss_damage
-
-                if ue_att1_start:
-                    last_step_cache["ue_att1_start"] = True
-                if ue_att1_end:
-                    last_step_cache["ue_att1_end"] = True
-
-                if ue_att2_start:
-                    last_step_cache["ue_att2_start"] = True
-                if ue_att2_end:
-                    last_step_cache["ue_att2_end"] = True
-
-                if ue_episode_done:
-                    last_step_cache["ue_episode_done"] = True
-                    last_step_cache["ue_episode_result"] = ue_episode_result
-            else:
-                event_audit.unattributed_player_hits_on_boss += ue_boss_hit_count
-                event_audit.unattributed_boss_hits_on_player += ue_player_hit_count
-                event_audit.unattributed_player_damage_to_boss += ue_boss_damage
-                event_audit.unattributed_boss_damage_to_player += ue_player_damage
+            tracker.record_frame_events(
+                boss_hit_count=ue_boss_hit_count,
+                player_hit_count=ue_player_hit_count,
+                boss_damage=ue_boss_damage,
+                player_damage=ue_player_damage,
+                att1_start=ue_att1_start,
+                att1_end=ue_att1_end,
+                att2_start=ue_att2_start,
+                att2_end=ue_att2_end,
+                episode_done=ue_episode_done,
+                episode_result=ue_episode_result,
+            )
 
             if pending_rejection_result is not None:
 
@@ -600,16 +546,7 @@ def main(config: ActorConfig):
                 )
 
                 # 這筆不能當成「Strafe 被成功執行」拿去訓練
-                if last_step_cache is not None:
-                    attribute_combat_events(
-                        last_step_cache=None,
-                        event_audit=event_audit,
-                        boss_hit_count=last_step_cache["ue_boss_hit_count"],
-                        player_hit_count=last_step_cache["ue_player_hit_count"],
-                        boss_damage=last_step_cache["ue_boss_damage"],
-                        player_damage=last_step_cache["ue_player_damage"],
-                    )
-                last_step_cache = None
+                tracker.discard_rejected_policy()
 
                 # 改由 runtime fallback 執行 Advance
                 with UE_EVENT_LOCK:
@@ -635,14 +572,7 @@ def main(config: ActorConfig):
 
                 terminal_combat_state = capture_terminal_combat_state(event_audit, pending_combat)
 
-                attribute_combat_events(
-                    last_step_cache=last_step_cache,
-                    event_audit=event_audit,
-                    boss_hit_count=terminal_combat_state["pending_boss_hits"],
-                    player_hit_count=terminal_combat_state["pending_player_hits"],
-                    boss_damage=terminal_combat_state["pending_boss_damage"],
-                    player_damage=terminal_combat_state["pending_player_damage"]
-                )
+                tracker.record_terminal_combat(terminal_combat_state)
 
                 event_audit_snapshot = {
                     "player_hits_on_boss_raw":terminal_combat_state["raw_player_hits_on_boss"],
@@ -660,19 +590,13 @@ def main(config: ActorConfig):
                 }
 
                 finalize_episode(
-                    rollout_buffer=rollout_buffer,
-                    last_step_cache=last_step_cache,
-                    terminal_anchor_cache=terminal_anchor_cache,
-                    episode_metrics=episode_metrics,
+                    tracker=tracker,
                     event_audit=event_audit_snapshot,
                     ground_truth_audit=ground_truth_audit,
-                    actor_id=config.actor_id,
                     episode_result=ue_episode_result,
                     policy_step=loaded_step,
                 )
                 terminal_handled = True
-                last_step_cache = None
-                terminal_anchor_cache = None
 
                 with UE_EVENT_LOCK:
                     UE_EVENT_STATE["episode_done_flag"] = False
@@ -690,24 +614,7 @@ def main(config: ActorConfig):
                     )
                 continue
 
-            if last_step_cache is not None:
-                if terminal_anchor_cache is not None:
-                    append_and_record_step(
-                        rollout_buffer=rollout_buffer,
-                        cache=terminal_anchor_cache,
-                        episode_metrics=episode_metrics,
-                        done=0,
-                    )
-                terminal_anchor_cache = last_step_cache
-                last_step_cache = None
-
-                if len(rollout_buffer) >= ROLLOUT_SAVE_EVERY:
-                    flush_rollout_buffer(
-                        rollout_buffer,
-                        config.actor_id,
-                        terminal_anchor_cache,
-                    )
-
+            tracker.rotate_at_decision_boundary()
  
             # Shared Runtime Pending Actions
             runtime_action = runtime.next_action()
@@ -874,7 +781,7 @@ def main(config: ActorConfig):
                     policy_step=loaded_step,
                 )
 
-            last_step_cache = {
+            policy_cache = {
                 "frames": frames,
                 "extra": extra_tensor,
                 "logits": logits_for_log,
@@ -905,6 +812,8 @@ def main(config: ActorConfig):
                 "actor_policy_step": loaded_step,
             }
 
+            tracker.record_policy_sent(policy_cache)
+
             send_runtime_action(
                 selected_action,
                 action_client,
@@ -928,9 +837,8 @@ def main(config: ActorConfig):
 
         cv2.destroyAllWindows()
 
-        if rollout_buffer:
-            flush_rollout_buffer(rollout_buffer, config.actor_id)
-            print("[rollout] flushed remaining buffer on shutdown")
+        if tracker is not None:
+            tracker.flush()
 
 def init_presence_state() -> dict:
     return {
@@ -995,13 +903,9 @@ def derive_rule_pred_name(info):
 
 def finalize_episode(
     *,
-    rollout_buffer,
-    last_step_cache,
-    terminal_anchor_cache,
-    episode_metrics,
+    tracker: TransitionTracker,
     event_audit,
     ground_truth_audit,
-    actor_id,
     episode_result,
     policy_step,
 ):
@@ -1011,42 +915,10 @@ def finalize_episode(
                 "episode_terminal"
             )
     
-    if last_step_cache is not None:
-        if terminal_anchor_cache is not None:
-            append_and_record_step(
-                rollout_buffer=rollout_buffer,
-                cache=terminal_anchor_cache,
-                episode_metrics=episode_metrics,
-                done=0,
-            )
-
-        last_step_cache["ue_episode_done"] = True
-        last_step_cache["ue_episode_result"] = episode_result
-
-        append_and_record_step(
-            rollout_buffer=rollout_buffer,
-            cache=last_step_cache,
-            episode_metrics=episode_metrics,
-            done=1,
-        )
-    elif terminal_anchor_cache is not None:
-        terminal_anchor_cache["ue_episode_done"] = True
-        terminal_anchor_cache["ue_episode_result"] = episode_result
-
-        append_and_record_step(
-            rollout_buffer=rollout_buffer,
-            cache=terminal_anchor_cache,
-            episode_metrics=episode_metrics,
-            done=1,
-        )
-    else:
-        print(
-            "[episode warning] terminal received "
-            "without any trainable policy transition"
-        )
+    tracker.finalize_transitions(episode_result)
         
 
-    summary = episode_metrics.finish_episode(
+    summary = tracker.episode_metrics.finish_episode(
         episode_result=episode_result,
         event_audit=event_audit,
         policy_step=policy_step,
@@ -1055,38 +927,7 @@ def finalize_episode(
     print(format_summary(summary))
     print(format_gt_summary(ground_truth_audit.build_summary()))
 
-    if rollout_buffer:
-        flush_rollout_buffer(rollout_buffer, actor_id)
-
-def append_and_record_step(
-    *,
-    rollout_buffer,
-    cache,
-    episode_metrics,
-    done,
-):
-    rewards = append_cached_step(
-                rollout_buffer,
-                cache,
-                done=done,
-            )
-    if rewards is None:
-        return
-    
-    resolved = resolve_priority_reward(
-            reward_high=float(rewards["high_reward"]),
-            reward_medium=float(rewards["medium_reward"]),
-            reward_low=float(rewards["low_reward"]),
-            ue_player_damage=float(cache["ue_player_damage"]),
-            ue_boss_damage=float(cache["ue_boss_damage"]),
-            ue_episode_result=cache["ue_episode_result"],
-        )
-    episode_metrics.record_transition(
-            cache=cache,
-            rewards=rewards,
-            selected_reward=resolved["reward"]
-        )
-    return rewards
+    tracker.flush()
 
 def capture_terminal_combat_state(event_audit, pending_combat):
 
