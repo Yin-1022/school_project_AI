@@ -104,6 +104,10 @@ def main(config: ActorConfig):
         event_audit = EpisodeEventAudit(player_max_hp=PLAYER_MAX_HP, boss_max_hp=BOSS_MAX_HP)
         pending_combat = PendingCombatEvents()
         ground_truth_audit = GroundTruthAudit()
+        tracker = TransitionTracker(
+            actor_id=config.actor_id,
+            event_audit=event_audit,
+        )
         receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, pending_combat, ground_truth_audit, event_port=config.event_port)
         action_cls_model = load_action_cls_model(str(ACTION_CLS_WEIGHTS_PATH), device=device)
 
