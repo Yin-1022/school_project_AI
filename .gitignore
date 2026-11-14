@@ -14,5 +14,6 @@ scripts/runtime/__pycache__/
 scripts/tests/__pycache__/
 scripts/runtime/adapters/__pycache__/
 scripts/tempCodeRunnerFile.py
+scripts/runtime/adapters/__pycache__/impala_adapter.cpython-310.pyc
 sendandreceiveosc.py
 tempCodeRunnerFile.py
