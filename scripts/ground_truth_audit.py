@@ -425,7 +425,7 @@ def format_gt_summary(summary: dict) -> str:
         f"Failed: {search['SearchTurnLeft']['failed_reacquire']}\n"
         f"    Maintained: {search['SearchTurnLeft']['maintained']} | "
         f"Lost: {search['SearchTurnLeft']['lost']}\n"
-        f"Reacquire Rate: {search['SearchTurnLeft']['reacquire_rate']:.2%}\n"
+        f"    Reacquire Rate: {search['SearchTurnLeft']['reacquire_rate']:.2%}\n"
         f"    Mean Start Distance: {search['SearchTurnLeft']['mean_start_distance']:.2f}\n"
         f"    Mean End Distance: {search['SearchTurnLeft']['mean_end_distance']:.2f}\n"
 
@@ -437,7 +437,7 @@ def format_gt_summary(summary: dict) -> str:
         f"Failed: {search['SearchTurnRight']['failed_reacquire']}\n"
         f"    Maintained: {search['SearchTurnRight']['maintained']} | "
         f"Lost: {search['SearchTurnRight']['lost']}\n"
-        f"Reacquire Rate: {search['SearchTurnRight']['reacquire_rate']:.2%}\n"
+        f"    Reacquire Rate: {search['SearchTurnRight']['reacquire_rate']:.2%}\n"
         f"    Mean Start Distance: {search['SearchTurnRight']['mean_start_distance']:.2f}\n"
         f"    Mean End Distance: {search['SearchTurnRight']['mean_end_distance']:.2f}\n"
 
@@ -449,7 +449,7 @@ def format_gt_summary(summary: dict) -> str:
         f"Failed: {search['PatrolStepLeft']['failed_reacquire']}\n"
         f"    Maintained: {search['PatrolStepLeft']['maintained']} | "
         f"Lost: {search['PatrolStepLeft']['lost']}\n"
-        f"Reacquire Rate: {search['PatrolStepLeft']['reacquire_rate']:.2%}\n"
+        f"    Reacquire Rate: {search['PatrolStepLeft']['reacquire_rate']:.2%}\n"
         f"    Mean Start Distance: {search['PatrolStepLeft']['mean_start_distance']:.2f}\n"
         f"    Mean End Distance: {search['PatrolStepLeft']['mean_end_distance']:.2f}\n"
 
@@ -461,7 +461,7 @@ def format_gt_summary(summary: dict) -> str:
         f"Failed: {search['PatrolStepRight']['failed_reacquire']}\n"
         f"    Maintained: {search['PatrolStepRight']['maintained']} | "
         f"Lost: {search['PatrolStepRight']['lost']}\n"
-        f"Reacquire Rate: {search['PatrolStepRight']['reacquire_rate']:.2%}\n"
+        f"    Reacquire Rate: {search['PatrolStepRight']['reacquire_rate']:.2%}\n"
         f"    Mean Start Distance: {search['PatrolStepRight']['mean_start_distance']:.2f}\n"
         f"    Mean End Distance: {search['PatrolStepRight']['mean_end_distance']:.2f}\n"
 

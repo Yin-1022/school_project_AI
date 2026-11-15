@@ -83,6 +83,23 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, pending_combat, 
             # Player dead = Boss win
             set_episode_result(result=1,source="player_health<=0",)
 
+    def on_player_use_hpitem(address, *args):
+        if not args:
+            return
+
+        health = float(args[0])
+
+        with UE_EVENT_LOCK:
+            previous_health = event_audit.final_player_health
+            event_audit.record_player_health(health)
+
+        healing = max(0.0, health - previous_health)
+
+        print(
+            f"[← UE] 玩家補血！ "
+            f"Hp={health:.1f}, healing={healing:.1f}"
+        )
+
     def on_enemy_status(address, *args):
         if len(args) < 2:
             return
@@ -181,6 +198,7 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, pending_combat, 
     dp.map("/att2end", on_att2_end)
     dp.map("/enemy_take_damage", on_boss_hit)
     dp.map("/player_health", on_health_changed)
+    dp.map("/player_use_HPitem", on_player_use_hpitem)
     dp.map("/enemy/status", on_enemy_status)
     dp.map("/enemy_distance", on_enemy_distance)
     dp.map("/game_over", on_episode_done)
