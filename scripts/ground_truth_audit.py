@@ -20,6 +20,11 @@ SEARCH_ACTIONS = {
     "PatrolStep",
 }
 
+BEFORE_AFTER_STATUS_ACTIONS = (
+    MOVEMENT_ACTIONS
+    | SEARCH_ACTIONS
+)
+
 @dataclass
 class GroundTruthActionRecord:
     action: str
@@ -78,14 +83,19 @@ class GroundTruthAudit:
         if self.current is None:
             self.unmatched_status += 1
             return
-        if self.current.action in MOVEMENT_ACTIONS:
+        if self.current.action not in BEFORE_AFTER_STATUS_ACTIONS:
+            self.unmatched_status += 1
+            return
+        if self.current.gt_can_see_start is None:
             self.current.gt_can_see_start = can_see
             self.current.gt_distance_start = distance
-        elif self.current.action in SEARCH_ACTIONS:
+            return
+        if self.current.gt_can_see_end is None:
             self.current.gt_can_see_end = can_see
             self.current.gt_distance_end = distance
-        else:
-            self.unmatched_status += 1
+            return
+
+        self.unmatched_status += 1
 
     def record_enemy_distance(self, distance: float):
         if self.current is None or self.current.action not in MOVEMENT_ACTIONS:
@@ -250,11 +260,19 @@ class GroundTruthAudit:
                 r for r in records
                 if (
                     r.completed
+                    and r.gt_can_see_start is not None
                     and r.gt_can_see_end is not None
+                    and r.gt_distance_start is not None
                     and r.gt_distance_end is not None
                 )
             ]
             visible_after_count = sum(bool(r.gt_can_see_end) for r in measured_records)
+
+            start_distances = [
+                r.gt_distance_start
+                for r in measured_records
+                if r.gt_distance_start is not None
+            ]
 
             end_distances = [
                 r.gt_distance_end
@@ -262,12 +280,45 @@ class GroundTruthAudit:
                 if r.gt_distance_end is not None
             ]
 
+            reacquired = sum(
+                not r.gt_can_see_start and r.gt_can_see_end
+                for r in measured_records
+            )
+
+            failed_reacquire = sum(
+                not r.gt_can_see_start and not r.gt_can_see_end
+                for r in measured_records
+            )
+
+            maintained = sum(
+                r.gt_can_see_start and r.gt_can_see_end
+                for r in measured_records
+            )
+
+            lost = sum(
+                r.gt_can_see_start and not r.gt_can_see_end
+                for r in measured_records
+            )
+
+            reacquire_attempts = reacquired + failed_reacquire
+
+            reacquire_rate = (
+                reacquired / reacquire_attempts
+                if reacquire_attempts > 0
+                else 0.0
+            )
+
             search_summary[action] = {
                 "attempts": len(records),
                 "completed": completed_count,
                 "aborted": len(records) - completed_count,
                 "visible_after": visible_after_count,
-                "success_rate": visible_after_count / len(measured_records) if measured_records else 0.0,
+                "reacquired": reacquired,
+                "failed_reacquire": failed_reacquire,
+                "maintained": maintained,
+                "lost": lost,
+                "reacquire_rate": reacquire_rate,
+                "mean_start_distance": sum(start_distances) / len(start_distances) if start_distances else 0.0,
                 "mean_end_distance": sum(end_distances) / len(end_distances) if end_distances else 0.0,
             }
 
@@ -370,41 +421,49 @@ def format_gt_summary(summary: dict) -> str:
         f"    Attempts: {search['SearchTurnLeft']['attempts']} | "
         f"Completed: {search['SearchTurnLeft']['completed']} | "
         f"Aborted: {search['SearchTurnLeft']['aborted']}\n"
-        f"    Visible After: "
-        f"{search['SearchTurnLeft']['visible_after']}/"
-        f"{search['SearchTurnLeft']['completed']} | "
-        f"Success: {search['SearchTurnLeft']['success_rate']:.2%} | "
-        f"Mean Distance: {search['SearchTurnLeft']['mean_end_distance']:.2f}\n"
+        f"    Reacquired: {search['SearchTurnLeft']['reacquired']} | "
+        f"Failed: {search['SearchTurnLeft']['failed_reacquire']}\n"
+        f"    Maintained: {search['SearchTurnLeft']['maintained']} | "
+        f"Lost: {search['SearchTurnLeft']['lost']}\n"
+        f"Reacquire Rate: {search['SearchTurnLeft']['reacquire_rate']:.2%}\n"
+        f"    Mean Start Distance: {search['SearchTurnLeft']['mean_start_distance']:.2f}\n"
+        f"    Mean End Distance: {search['SearchTurnLeft']['mean_end_distance']:.2f}\n"
 
         f"  SearchTurnRight:\n"
         f"    Attempts: {search['SearchTurnRight']['attempts']} | "
         f"Completed: {search['SearchTurnRight']['completed']} | "
         f"Aborted: {search['SearchTurnRight']['aborted']}\n"
-        f"    Visible After: "
-        f"{search['SearchTurnRight']['visible_after']}/"
-        f"{search['SearchTurnRight']['completed']} | "
-        f"Success: {search['SearchTurnRight']['success_rate']:.2%} | "
-        f"Mean Distance: {search['SearchTurnRight']['mean_end_distance']:.2f}\n"
+        f"    Reacquired: {search['SearchTurnRight']['reacquired']} | "
+        f"Failed: {search['SearchTurnRight']['failed_reacquire']}\n"
+        f"    Maintained: {search['SearchTurnRight']['maintained']} | "
+        f"Lost: {search['SearchTurnRight']['lost']}\n"
+        f"Reacquire Rate: {search['SearchTurnRight']['reacquire_rate']:.2%}\n"
+        f"    Mean Start Distance: {search['SearchTurnRight']['mean_start_distance']:.2f}\n"
+        f"    Mean End Distance: {search['SearchTurnRight']['mean_end_distance']:.2f}\n"
 
         f"  PatrolStepLeft:\n"
         f"    Attempts: {search['PatrolStepLeft']['attempts']} | "
         f"Completed: {search['PatrolStepLeft']['completed']} | "
         f"Aborted: {search['PatrolStepLeft']['aborted']}\n"
-        f"    Visible After: "
-        f"{search['PatrolStepLeft']['visible_after']}/"
-        f"{search['PatrolStepLeft']['completed']} | "
-        f"Success: {search['PatrolStepLeft']['success_rate']:.2%} | "
-        f"Mean Distance: {search['PatrolStepLeft']['mean_end_distance']:.2f}\n"
+        f"    Reacquired: {search['PatrolStepLeft']['reacquired']} | "
+        f"Failed: {search['PatrolStepLeft']['failed_reacquire']}\n"
+        f"    Maintained: {search['PatrolStepLeft']['maintained']} | "
+        f"Lost: {search['PatrolStepLeft']['lost']}\n"
+        f"Reacquire Rate: {search['PatrolStepLeft']['reacquire_rate']:.2%}\n"
+        f"    Mean Start Distance: {search['PatrolStepLeft']['mean_start_distance']:.2f}\n"
+        f"    Mean End Distance: {search['PatrolStepLeft']['mean_end_distance']:.2f}\n"
 
         f"  PatrolStepRight:\n"
         f"    Attempts: {search['PatrolStepRight']['attempts']} | "
         f"Completed: {search['PatrolStepRight']['completed']} | "
         f"Aborted: {search['PatrolStepRight']['aborted']}\n"
-        f"    Visible After: "
-        f"{search['PatrolStepRight']['visible_after']}/"
-        f"{search['PatrolStepRight']['completed']} | "
-        f"Success: {search['PatrolStepRight']['success_rate']:.2%} | "
-        f"Mean Distance: {search['PatrolStepRight']['mean_end_distance']:.2f}\n"
+        f"    Reacquired: {search['PatrolStepRight']['reacquired']} | "
+        f"Failed: {search['PatrolStepRight']['failed_reacquire']}\n"
+        f"    Maintained: {search['PatrolStepRight']['maintained']} | "
+        f"Lost: {search['PatrolStepRight']['lost']}\n"
+        f"Reacquire Rate: {search['PatrolStepRight']['reacquire_rate']:.2%}\n"
+        f"    Mean Start Distance: {search['PatrolStepRight']['mean_start_distance']:.2f}\n"
+        f"    Mean End Distance: {search['PatrolStepRight']['mean_end_distance']:.2f}\n"
 
         "\nDiagnostics:\n"
         f"  Unmatched Status: "
