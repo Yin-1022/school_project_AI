@@ -198,6 +198,17 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, pending_combat, 
 
         print(f"[← UE] Strafe left failed! args: {args}")
 
+    def on_map1(address, *args):
+        with UE_EVENT_LOCK:
+            UE_EVENT_STATE["current_map"] = "castle"
+        print("[← UE] Map: castle map")
+
+
+    def on_cavemap(address, *args):
+        with UE_EVENT_LOCK:
+            UE_EVENT_STATE["current_map"] = "cave"
+        print("[← UE] Map: cave")
+
     dp = dispatcher.Dispatcher()
     dp.map("/att1start", on_att1_start)
     dp.map("/att1end", on_att1_end)
@@ -217,6 +228,8 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, pending_combat, 
     dp.map("/cantmove", on_cantmove)
     dp.map("/notseeplayer", on_notseeplayer)
     dp.map("/strafeleftfail", on_strafeleftfail)
+    dp.map("/map1", on_map1)
+    dp.map("/cavemap", on_cavemap)
     dp.set_default_handler(on_fallback)
 
     server = osc_server.ThreadingOSCUDPServer(("0.0.0.0", event_port), dp)

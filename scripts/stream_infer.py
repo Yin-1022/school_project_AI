@@ -74,6 +74,8 @@ UE_EVENT_STATE = {
     "act_end_pulse": False,
     "cantmove_pulse": False,
     "notseeplayer_pulse": False,
+
+    "current_map": "unknown",
 }
 UE_EVENT_LOCK = threading.Lock()
 PRESENCE_RECORD_MODE = True
@@ -218,9 +220,11 @@ def main(config: ActorConfig):
                 episode_started = UE_EVENT_STATE["episode_start_pulse"]
                 episode_done = UE_EVENT_STATE["episode_done_flag"]
                 episode_result = UE_EVENT_STATE["episode_result"]
+                current_map = UE_EVENT_STATE["current_map"]
 
                 if episode_started:
                     UE_EVENT_STATE["episode_start_pulse"] = False
+                    tracker.episode_metrics.map_id = current_map
 
             if episode_done and episode_result in (-1, 1) and not terminal_handled:
 
@@ -697,6 +701,7 @@ def main(config: ActorConfig):
                     frame_id_end=frame_id_end,
                     policy_step=loaded_step,
                 )
+                current_map = UE_EVENT_STATE["current_map"]
 
             policy_cache = {
                 "frames": frames,
@@ -729,6 +734,7 @@ def main(config: ActorConfig):
 
                 "action_mask": action_mask.copy(),
                 "actor_policy_step": loaded_step,
+                "map_id": current_map,
             }
 
             tracker.record_policy_sent(policy_cache)

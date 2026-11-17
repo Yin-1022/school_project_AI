@@ -75,6 +75,7 @@ class EpisodeEventAudit:
 @dataclass
 class EpisodeMetrics:
     actor_id: str
+    map_id: str = "unknown"
 
     episode_steps: int = 0
     policy_step: int | None = None
@@ -198,6 +199,7 @@ class EpisodeMetrics:
 
         return {
             "actor_id": self.actor_id,
+            "map_id": self.map_id,
             "policy_step": self.policy_step,
 
             "result": result,
@@ -263,7 +265,8 @@ def format_summary(summary: dict) -> str:
     return (
         "========== Episode Summary ==========\n"
         f"Actor {summary['actor_id']} | "
-        f"Policy Step: {summary['policy_step']} | \n"
+        f"Policy Step: {summary['policy_step']} | "
+        f" Map: {summary['map_id']} | \n"
         f"Result: {summary['result']} | "
         f"Steps: {summary['steps']} | "
         f"Duration: {summary['duration_sec']:.2f} sec | \n"

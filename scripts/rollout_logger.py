@@ -20,7 +20,7 @@ def append_rollout_step(buffer, frames, extra, logits, probs, behavior_probs,
                         ue_boss_damage, ue_player_damage,
                         ue_episode_done, ue_episode_result,
                         reward_high, reward_medium, reward_low, done,
-                        action_rejected, rejection_reason,
+                        action_rejected, rejection_reason, map_id,
                         action_mask=None, actor_policy_step=0):
     step = {
         "extra": extra.squeeze(0).detach().cpu().numpy(),     # shape (24,)
@@ -54,6 +54,7 @@ def append_rollout_step(buffer, frames, extra, logits, probs, behavior_probs,
         "actor_policy_step": np.int64(actor_policy_step),
         "action_rejected": np.int64(1 if action_rejected else 0),
         "rejection_reason": str(rejection_reason),
+        "map_id": str(map_id),
         # "value": np.float32(
         #         value.detach().cpu().item() if hasattr(value, "detach") else value
         #     ),
@@ -129,6 +130,7 @@ def flush_rollout_buffer(buffer, actor_id, bootstrap_cathe=None):
         "actor_policy_step": np.asarray([x["actor_policy_step"] for x in buffer],dtype=np.int64),
         "action_rejected": np.asarray([x["action_rejected"] for x in buffer],dtype=np.int64),
         "rejection_reason": np.asarray([x["rejection_reason"] for x in buffer]),
+        "map_id": np.asarray([x["map_id"] for x in buffer]),
     }
 
     if ROLLOUT_PROFILE == "train":
@@ -262,6 +264,8 @@ def append_cached_step(rollout_buffer, cache, done=0):
         pol_state=cache["pol_state"],
         frame_id_end=cache["frame_id_end"],
         fire_frame=cache["fire_frame"],
+
+        map_id=cache["map_id"],
 
         ue_att1_start=cache["ue_att1_start"],
         ue_att1_end=cache["ue_att1_end"],
