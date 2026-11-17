@@ -96,6 +96,7 @@ class TransitionTracker:
     def mark_rejected_policy(
         self,
         expected_action: RuntimeAction | None = None,
+        reason="notseeplayer",
     ) -> None:
         cache = self._last_step_cache
 
@@ -140,7 +141,7 @@ class TransitionTracker:
         cache["ue_att2_start"] = False
         cache["ue_att2_end"] = False
         cache["action_rejected"] = True
-        cache["rejection_reason"] = "notseeplayer"
+        cache["rejection_reason"] = reason
 
     def rotate_at_decision_boundary(self) -> None:
         if self._last_step_cache is None:
