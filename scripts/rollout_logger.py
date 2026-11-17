@@ -165,7 +165,8 @@ def compute_reward_channels(
         ue_att1_start, ue_att1_end, ue_att2_start, ue_att2_end,
         ue_boss_hit_count, ue_player_hit_count,
         ue_boss_damage, ue_player_damage,
-        ue_episode_result
+        ue_episode_result,
+        action_rejected, rejection_reason,
     ):
 
     high_reward = 0.0
@@ -187,6 +188,14 @@ def compute_reward_channels(
 
     #Low level shaping reward
     low_reward = 0.0
+    REJECTED_ACTION_PENALTY = 0.03
+
+    if (
+        action_rejected
+        and rejection_reason == "notseeplayer"
+        and final_action in {"StrafeLeft", "StrafeRight"}
+    ):
+        low_reward -= REJECTED_ACTION_PENALTY
     # Disabled for reward audit:
     # action-based shaping can be exploited by repeated movement.
 
@@ -235,7 +244,9 @@ def append_cached_step(rollout_buffer, cache, done=0):
         ue_player_hit_count=cache["ue_player_hit_count"],
         ue_boss_damage=cache["ue_boss_damage"],
         ue_player_damage=cache["ue_player_damage"],
-        ue_episode_result=cache["ue_episode_result"]
+        ue_episode_result=cache["ue_episode_result"],
+        action_rejected=cache["action_rejected"],
+        rejection_reason=cache["rejection_reason"],
     )
 
     append_rollout_step(
