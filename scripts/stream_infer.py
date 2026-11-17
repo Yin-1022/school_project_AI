@@ -225,6 +225,9 @@ def main(config: ActorConfig):
                 if episode_started:
                     UE_EVENT_STATE["episode_start_pulse"] = False
 
+            if current_map != "unknown":
+                tracker.episode_metrics.map_id = current_map
+
             if episode_done and episode_result in (-1, 1) and not terminal_handled:
 
                 finalize_terminal_episode(
@@ -254,7 +257,6 @@ def main(config: ActorConfig):
                 force_decision = False
                 terminal_handled = False
                 tracker.reset_episode_state()
-                tracker.episode_metrics.map_id = current_map
 
                 with UE_EVENT_LOCK:
                     event_audit.reset()
