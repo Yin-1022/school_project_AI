@@ -42,6 +42,7 @@ class GroundTruthActionRecord:
     gt_can_see_end: bool | None = None
     gt_distance_end: float | None = None
 
+    failure_signals: set[str] = field(default_factory=set)
     completed: bool = False
     aborted_reason: str | None = None
 
@@ -52,6 +53,7 @@ class GroundTruthAudit:
 
     unmatched_status: int = 0
     unmatched_distance: int = 0
+    unmatched_failure_signal: int = 0
     action_mismatch: int = 0
 
     def begin_action(
@@ -147,11 +149,18 @@ class GroundTruthAudit:
         self.records.append(self.current)
         self.current = None
 
+    def record_failure_signal(self, reason: str):
+        if self.current is None:
+            self.unmatched_failure_signal += 1
+            return
+        self.current.failure_signals.add(reason)
+
     def reset(self):
         self.current = None
         self.records.clear()
         self.unmatched_status = 0
         self.unmatched_distance = 0
+        self.unmatched_failure_signal = 0
         self.action_mismatch = 0
 
     def build_summary(self):
@@ -231,6 +240,12 @@ class GroundTruthAudit:
             farther_count = sum(delta < -EPS for delta in deltas)
             unchanged_count = len(deltas) - close_count - farther_count
 
+            failure_signals = Counter(
+                signal
+                for r in records
+                for signal in r.failure_signals
+            )
+
             abort_reasons = Counter(
                 r.aborted_reason
                 for r in records
@@ -245,6 +260,7 @@ class GroundTruthAudit:
                 "completed": completed_count,
                 "aborted": len(records) - completed_count,  
                 "abort_reasons": dict(abort_reasons),
+                "failure_signals": dict(failure_signals),
                 "closer": close_count,
                 "farther": farther_count,
                 "unchanged": unchanged_count,
@@ -385,7 +401,9 @@ def format_gt_summary(summary: dict) -> str:
         f"Completed: {movement['Advance']['completed']} | "
         f"Aborted: {movement['Advance']['aborted']}\n"
         f"    Abort Reasons: "
-        f"{format_abort_reasons(movement['Advance']['abort_reasons'])}\n"
+        f"{format_reason_counts(movement['Advance']['abort_reasons'])}\n"
+        f"    Failure Signals: "
+        f"{format_reason_counts(movement['Advance']['failure_signals'])}\n"
         f"    Closer: {movement['Advance']['closer']} | "
         f"Farther: {movement['Advance']['farther']} | "
         f"Unchanged: {movement['Advance']['unchanged']}\n"
@@ -397,7 +415,9 @@ def format_gt_summary(summary: dict) -> str:
         f"Completed: {movement['StrafeLeft']['completed']} | "
         f"Aborted: {movement['StrafeLeft']['aborted']}\n"
         f"    Abort Reasons: "
-        f"{format_abort_reasons(movement['StrafeLeft']['abort_reasons'])}\n"
+        f"{format_reason_counts(movement['StrafeLeft']['abort_reasons'])}\n"
+        f"    Failure Signals: "
+        f"{format_reason_counts(movement['StrafeLeft']['failure_signals'])}\n"
         f"    Closer: {movement['StrafeLeft']['closer']} | "
         f"Farther: {movement['StrafeLeft']['farther']} | "
         f"Unchanged: {movement['StrafeLeft']['unchanged']}\n"
@@ -409,7 +429,9 @@ def format_gt_summary(summary: dict) -> str:
         f"Completed: {movement['StrafeRight']['completed']} | "
         f"Aborted: {movement['StrafeRight']['aborted']}\n"
         f"    Abort Reasons: "
-        f"{format_abort_reasons(movement['StrafeRight']['abort_reasons'])}\n"
+        f"{format_reason_counts(movement['StrafeRight']['abort_reasons'])}\n"
+        f"    Failure Signals: "
+        f"{format_reason_counts(movement['StrafeRight']['failure_signals'])}\n"
         f"    Closer: {movement['StrafeRight']['closer']} | "
         f"Farther: {movement['StrafeRight']['farther']} | "
         f"Unchanged: {movement['StrafeRight']['unchanged']}\n"
@@ -470,17 +492,19 @@ def format_gt_summary(summary: dict) -> str:
         f"{diagnostics['unmatched_status']}\n"
         f"  Unmatched Distance: "
         f"{diagnostics['unmatched_distance']}\n"
+        f"  Unmatched Failure Signal: "
+        f"{diagnostics['unmatched_failure_signal']}\n"
         f"  Action Mismatch: "
         f"{diagnostics['action_mismatch']}\n"
 
         "========================================"
     )
 
-def format_abort_reasons(abort_reasons: dict) -> str:
-    if not abort_reasons:
+def format_reason_counts(reason_counts: dict) -> str:
+    if not reason_counts:
         return "None"
 
     return ", ".join(
         f"{reason}={count}"
-        for reason, count in abort_reasons.items()
+        for reason, count in reason_counts.items()
     )

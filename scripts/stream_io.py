@@ -168,6 +168,7 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, pending_combat, 
     def on_cantmove(address, *args):
         with UE_EVENT_LOCK:
             UE_EVENT_STATE["cantmove_pulse"] = True
+            ground_truth_audit.record_failure_signal("cantmove")
         print(f"[← UE] Boss cant move! args: {args}")
 
     def on_act_start(address, *args):
@@ -191,6 +192,12 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, pending_combat, 
 
         print(f"[← UE] Strafe rejected: player not seen! args: {args}")
 
+    def on_strafeleftfail(address, *args):
+        with UE_EVENT_LOCK:
+            ground_truth_audit.record_failure_signal("strafeleftfail")
+
+        print(f"[← UE] Strafe left failed! args: {args}")
+
     dp = dispatcher.Dispatcher()
     dp.map("/att1start", on_att1_start)
     dp.map("/att1end", on_att1_end)
@@ -209,6 +216,7 @@ def receive_from_ue(UE_EVENT_LOCK, UE_EVENT_STATE, event_audit, pending_combat, 
     dp.map("/actend", on_act_end)
     dp.map("/cantmove", on_cantmove)
     dp.map("/notseeplayer", on_notseeplayer)
+    dp.map("/strafeleftfail", on_strafeleftfail)
     dp.set_default_handler(on_fallback)
 
     server = osc_server.ThreadingOSCUDPServer(("0.0.0.0", event_port), dp)
