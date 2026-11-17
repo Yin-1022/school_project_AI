@@ -724,6 +724,8 @@ def main(config: ActorConfig):
                 "ue_player_damage": 0,
                 "ue_episode_done": False,
                 "ue_episode_result": 0,
+                "action_rejected": False,
+                "rejection_reason": "",
 
                 "action_mask": action_mask.copy(),
                 "actor_policy_step": loaded_step,

@@ -19,7 +19,8 @@ def append_rollout_step(buffer, frames, extra, logits, probs, behavior_probs,
                         ue_boss_hit_count, ue_player_hit_count,
                         ue_boss_damage, ue_player_damage,
                         ue_episode_done, ue_episode_result,
-                        reward_high, reward_medium, reward_low, done, 
+                        reward_high, reward_medium, reward_low, done,
+                        action_rejected, rejection_reason,
                         action_mask=None, actor_policy_step=0):
     step = {
         "extra": extra.squeeze(0).detach().cpu().numpy(),     # shape (24,)
@@ -51,6 +52,8 @@ def append_rollout_step(buffer, frames, extra, logits, probs, behavior_probs,
         "ue_episode_result": np.int64(ue_episode_result),
         "action_mask": np.asarray(action_mask, dtype=np.bool_),
         "actor_policy_step": np.int64(actor_policy_step),
+        "action_rejected": np.int64(1 if action_rejected else 0),
+        "rejection_reason": str(rejection_reason),
         # "value": np.float32(
         #         value.detach().cpu().item() if hasattr(value, "detach") else value
         #     ),
@@ -124,6 +127,8 @@ def flush_rollout_buffer(buffer, actor_id, bootstrap_cathe=None):
 
         "action_mask": np.stack([x["action_mask"] for x in buffer],axis=0),
         "actor_policy_step": np.asarray([x["actor_policy_step"] for x in buffer],dtype=np.int64),
+        "action_rejected": np.asarray([x["action_rejected"] for x in buffer],dtype=np.int64),
+        "rejection_reason": np.asarray([x["rejection_reason"] for x in buffer]),
     }
 
     if ROLLOUT_PROFILE == "train":
@@ -265,6 +270,8 @@ def append_cached_step(rollout_buffer, cache, done=0):
         done=done,
         action_mask=cache["action_mask"],
         actor_policy_step=cache["actor_policy_step"],
+        action_rejected=cache["action_rejected"],
+        rejection_reason=cache["rejection_reason"],
     )
 
     return rewards

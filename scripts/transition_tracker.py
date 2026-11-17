@@ -93,7 +93,7 @@ class TransitionTracker:
             player_damage=snapshot["pending_player_damage"],
         )
 
-    def discard_rejected_policy(
+    def mark_rejected_policy(
         self,
         expected_action: RuntimeAction | None = None,
     ) -> None:
@@ -130,7 +130,17 @@ class TransitionTracker:
             player_damage=cache["ue_player_damage"],
         )
 
-        self._last_step_cache = None
+        cache["ue_boss_hit_count"] = 0
+        cache["ue_player_hit_count"] = 0
+        cache["ue_boss_damage"] = 0.0
+        cache["ue_player_damage"] = 0.0
+
+        cache["ue_att1_start"] = False
+        cache["ue_att1_end"] = False
+        cache["ue_att2_start"] = False
+        cache["ue_att2_end"] = False
+        cache["action_rejected"] = True
+        cache["rejection_reason"] = "notseeplayer"
 
     def rotate_at_decision_boundary(self) -> None:
         if self._last_step_cache is None:

@@ -372,6 +372,7 @@ class GroundTruthAudit:
             "diagnostics": {
                 "unmatched_status": self.unmatched_status,
                 "unmatched_distance": self.unmatched_distance,
+                "unmatched_failure_signal": self.unmatched_failure_signal,
                 "action_mismatch": self.action_mismatch,
             },
         }

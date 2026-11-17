@@ -31,8 +31,9 @@ def handle_rejection_pulse(
         )
 
     # The Tracker owns Policy Cache and combat attribution.
-    tracker.discard_rejected_policy(
+    tracker.mark_rejected_policy(
         expected_action=result.action,
+        reason="notseeplayer",
     )
 
     # The Audit owns execution records.
