@@ -3,6 +3,12 @@ import numpy as np
 
 from vtrace import compute_importance_ratios, compute_vtrace_value_targets, compute_policy_gradient_advantages, prepare_vtrace_weights
 from impala_loss import compute_impala_loss
+from reward_priority import (
+    PRIORITY_NONE,
+    PRIORITY_LOW,
+    PRIORITY_MEDIUM,
+    PRIORITY_HIGH,
+)
 
 def warmstart_actor_critic_from_bc(actor_critic, bc_model):
     ac_state = actor_critic.state_dict()
@@ -51,6 +57,16 @@ def train_impala_batch(model, optimizer, batch_unrolls, max_grad_norm=40.0):
         axis=0,
     )
 
+    reward_priority = np.stack(
+    [u["reward_priority"] for u in batch_unrolls],
+    axis=0,
+)
+
+    episode_result = np.stack(
+        [u["ue_episode_result"] for u in batch_unrolls],
+        axis=0,
+    )
+
     action_mask = np.stack(
         [
             u["action_mask"]
@@ -69,6 +85,8 @@ def train_impala_batch(model, optimizer, batch_unrolls, max_grad_norm=40.0):
     done_tensor = torch.from_numpy(done).float()
     valid_mask_tensor = torch.from_numpy(valid_mask).float()
     action_mask_tensor = torch.from_numpy(action_mask).bool()
+    reward_priority_tensor = torch.from_numpy(reward_priority).long()
+    episode_result_tensor = torch.from_numpy(episode_result).long()
 
     flat_frames = frames.reshape(batch_size * unroll_length,*frames.shape[2:],)
     flat_extra = extra.reshape(batch_size * unroll_length,-1)
@@ -182,6 +200,18 @@ def train_impala_batch(model, optimizer, batch_unrolls, max_grad_norm=40.0):
     )
     valid_actions = action_tensor[valid_mask_tensor.bool()]
 
+    valid_bool = valid_mask_tensor.bool()
+    terminal_mask = ((done_tensor > 0.5) & valid_bool)
+    terminal_count = terminal_mask.sum()
+    terminal_wins = (terminal_mask & (episode_result_tensor == 1)).sum()
+    terminal_losses = (terminal_mask & (episode_result_tensor == -1)).sum()
+
+    valid_priorities = reward_priority_tensor[valid_bool]
+    priority_none_count = (valid_priorities == PRIORITY_NONE).sum()
+    priority_low_count = (valid_priorities == PRIORITY_LOW).sum()
+    priority_medium_count = (valid_priorities == PRIORITY_MEDIUM).sum()
+    priority_high_count = (valid_priorities == PRIORITY_HIGH).sum()
+
     action_counts = torch.bincount(
         valid_actions,
         minlength=10,
@@ -207,4 +237,11 @@ def train_impala_batch(model, optimizer, batch_unrolls, max_grad_norm=40.0):
         "reward_min": reward_min.detach(),
         "reward_max": reward_max.detach(),
         "reward_nonzero_ratio": reward_nonzero_ratio.detach(),
+        "terminal_count": terminal_count.detach(),
+        "terminal_wins": terminal_wins.detach(),
+        "terminal_losses": terminal_losses.detach(),
+        "priority_none_count": priority_none_count.detach(),
+        "priority_low_count": priority_low_count.detach(),
+        "priority_medium_count": priority_medium_count.detach(),
+        "priority_high_count": priority_high_count.detach(),
     }

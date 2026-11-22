@@ -185,6 +185,19 @@ def main() -> None:
                 print(f"grad_norm: {metrics['grad_norm'].item()}")
                 print(f"Valid: {metrics['valid_steps'].item()}")
                 print(f"Batch unrolls: {len(batch)}")
+                print(f"Terminal transitiions: {metrics['terminal_count'].item()}")
+                print(
+                    f"Terminal results: " 
+                    f"wins={metrics['terminal_wins'].item()}, "
+                    f"losses={metrics['terminal_losses'].item()}"
+                )
+                print(
+                    "Reward priority counts: "
+                    f"high={metrics['priority_high_count'].item()}, "
+                    f"medium={metrics['priority_medium_count'].item()}, "
+                    f"low={metrics['priority_low_count'].item()}, "
+                    f"none={metrics['priority_none_count'].item()}"
+                )
                 print(f"Reward sum: {metrics['reward_sum'].item()}")
                 print(f"Reward mean: {metrics['reward_mean'].item()}")
                 print(f"Reward min: {metrics['reward_min'].item()}")
