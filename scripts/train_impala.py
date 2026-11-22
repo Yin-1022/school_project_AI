@@ -185,7 +185,7 @@ def main() -> None:
                 print(f"grad_norm: {metrics['grad_norm'].item()}")
                 print(f"Valid: {metrics['valid_steps'].item()}")
                 print(f"Batch unrolls: {len(batch)}")
-                print(f"Terminal transitiions: {metrics['terminal_count'].item()}")
+                print(f"Terminal transitions: {metrics['terminal_count'].item()}")
                 print(
                     f"Terminal results: " 
                     f"wins={metrics['terminal_wins'].item()}, "

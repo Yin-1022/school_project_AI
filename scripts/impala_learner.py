@@ -58,9 +58,9 @@ def train_impala_batch(model, optimizer, batch_unrolls, max_grad_norm=40.0):
     )
 
     reward_priority = np.stack(
-    [u["reward_priority"] for u in batch_unrolls],
-    axis=0,
-)
+        [u["reward_priority"] for u in batch_unrolls],
+        axis=0,
+    )
 
     episode_result = np.stack(
         [u["ue_episode_result"] for u in batch_unrolls],
